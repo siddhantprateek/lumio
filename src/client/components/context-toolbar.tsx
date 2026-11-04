@@ -39,6 +39,7 @@ import { GradientControls } from "./gradient-controls";
 import { findBackdropShape, findBgImage, isBgImage } from "../lib/background";
 import { buildObjectGradient } from "../lib/gradient";
 import { isEditablePolygon, polygonSpecOf, reshapePolygon, type PolygonSpec } from "../lib/polygon";
+import { graphicColours, graphicStrokeWidth, hasStrokes, isVectorGraphic, replaceColour, setGraphicStrokeWidth } from "../lib/vector";
 import { Popover, useCanvasTick, useEditorUI } from "./editor-ui";
 import { hasTextBehind } from "../lib/text-behind";
 import { specToCss, gradientToSpec, type GradientSpec } from "../lib/gradient";
@@ -347,6 +348,51 @@ function PolygonControls() {
   );
 }
 
+/**
+ * Vector graphics (doodles, icons, uploaded SVGs): one swatch per colour
+ * used, like Canva, plus line weight when the graphic has strokes.
+ */
+function GraphicColours() {
+  const { canvas, selectedObject, updateSelectedObject } = useEditor();
+  if (!selectedObject || !isVectorGraphic(selectedObject)) return null;
+  const colours = graphicColours(selectedObject).slice(0, 8);
+  const weight = graphicStrokeWidth(selectedObject);
+  const recolour = (from: string, to: string) => {
+    replaceColour(selectedObject, from, to);
+    canvas?.requestRenderAll();
+    updateSelectedObject({});
+  };
+  return (
+    <>
+      {/* Keyed by position, so recolouring live does not close the popover mid-drag. */}
+      {colours.map((c, i) => (
+        <Popover key={i} width="w-56" trigger={(open, toggle) => (
+          <Btn title={`Colour ${c}`} on={open} onClick={toggle}>
+            <span class="w-5 h-5 rounded-full border border-zinc-300" style={{ background: c }} />
+          </Btn>
+        )}>
+          <label class="text-[11px] text-zinc-400 mb-1 block">Colour {i + 1}</label>
+          <input type="color" aria-label={`Colour ${i + 1}`} class="w-full h-8 rounded border border-zinc-300 cursor-pointer bg-transparent"
+            value={c} onInput={(e) => recolour(c, (e.target as HTMLInputElement).value)} />
+          <BrandSwatches onPick={(to) => recolour(c, to)} />
+        </Popover>
+      ))}
+      {hasStrokes(selectedObject) && (
+        <Popover width="w-56" trigger={(open, toggle) => (
+          <Btn title="Line weight" on={open} onClick={toggle}><MoveHorizontal size={15} />Weight</Btn>
+        )}>
+          <Range label="Line weight" min={0.5} max={Math.max(24, Math.ceil(weight * 3))} step={0.5} value={weight}
+            onChange={(w) => {
+              setGraphicStrokeWidth(selectedObject, w);
+              canvas?.requestRenderAll();
+              updateSelectedObject({});
+            }} />
+        </Popover>
+      )}
+    </>
+  );
+}
+
 function ShapeBar() {
   const { selectedObject } = useEditor();
   const { panel, setPanel } = useEditorUI();
@@ -362,8 +408,14 @@ function ShapeBar() {
         </>
       )}
       <PolygonControls />
-      <FillSwatch label="Colour" solidDefault="#6366f1" />
-      <BorderControls rounding={selectedObject instanceof fabric.Rect} />
+      {isVectorGraphic(selectedObject) ? (
+        <GraphicColours />
+      ) : (
+        <>
+          <FillSwatch label="Colour" solidDefault="#6366f1" />
+          <BorderControls rounding={selectedObject instanceof fabric.Rect} />
+        </>
+      )}
       <Transparency />
       <Sep />
       <PositionButton />

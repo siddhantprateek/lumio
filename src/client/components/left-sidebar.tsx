@@ -18,6 +18,8 @@ import {
 } from "lucide-preact";
 import { useEditor } from "../context";
 import { SHAPES } from "../lib/shapes";
+import { DoodlesGrid, IconsBrowser } from "./graphics-panel";
+import { placeSvg } from "../lib/vector";
 import { TemplateCard } from "./template-card";
 import { DesignList } from "./design-list";
 import { BrandKitPanel } from "./brand-kit-panel";
@@ -67,7 +69,7 @@ const BG_COLORS = [
 ];
 
 export function LeftSidebar() {
-  const { addText, addShape, addImage, setBackground, templates, loadTemplate } = useEditor();
+  const { addText, addShape, addImage, setBackground, templates, loadTemplate, canvas, canvasWidth, canvasHeight } = useEditor();
   const [activeSection, setActiveSection] = useState<Section | null>("templates");
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -83,6 +85,11 @@ export function LeftSidebar() {
       setUploading(true);
       try {
         for (const file of Array.from(files)) {
+          // SVGs come in as editable vectors (recolour, line weight), not flat pictures.
+          if ((file.type === "image/svg+xml" || /\.svg$/i.test(file.name)) && canvas) {
+            await placeSvg(canvas, await file.text(), { width: canvasWidth, height: canvasHeight });
+            continue;
+          }
           const form = new FormData();
           form.append("file", file);
           const resp = await fetch("/api/uploads", { method: "POST", body: form });
@@ -95,7 +102,7 @@ export function LeftSidebar() {
         setUploading(false);
       }
     },
-    [addImage]
+    [addImage, canvas, canvasWidth, canvasHeight]
   );
 
   const handleBgUpload = useCallback(
@@ -276,6 +283,8 @@ export function LeftSidebar() {
                         </div>
                       </div>
                     ))}
+                    <DoodlesGrid />
+                    <IconsBrowser />
                   </div>
                 )}
 

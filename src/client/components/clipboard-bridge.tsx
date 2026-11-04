@@ -10,6 +10,7 @@ import {
   type ImportDetail,
   type Incoming,
 } from "../lib/clipboard-import";
+import { placeSvg } from "../lib/vector";
 
 /**
  * Black or white, whichever reads better on the page: judged from the bottom
@@ -79,6 +80,11 @@ export function ClipboardBridge() {
         canvas.add(text);
         canvas.setActiveObject(text);
         canvas.requestRenderAll();
+        return;
+      }
+      // Pasted or dropped SVG files become editable vectors.
+      if (item.kind === "image-file" && item.file.type === "image/svg+xml") {
+        await placeSvg(canvas, await item.file.text(), { width: canvasWidth, height: canvasHeight }, { at });
         return;
       }
       setStatus({ text: "Adding image…" });
