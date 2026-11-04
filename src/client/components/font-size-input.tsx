@@ -6,7 +6,7 @@ const MIN = 1;
 const MAX = 800;
 
 /** Size field with − / + steppers and a list of common sizes. */
-export function FontSizeInput({ value, onChange }: { value: number; onChange: (size: number) => void }) {
+export function FontSizeInput({ value, onChange, compact = false }: { value: number; onChange: (size: number) => void; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const clamp = (n: number) => Math.min(MAX, Math.max(MIN, Math.round(n)));
   const step = (dir: 1 | -1) => {
@@ -16,7 +16,7 @@ export function FontSizeInput({ value, onChange }: { value: number; onChange: (s
 
   return (
     <div class="relative">
-      <label class="text-[11px] text-zinc-400 mb-1 block">Font size</label>
+      {!compact && <label class="text-[11px] text-zinc-400 mb-1 block">Font size</label>}
       <div class="flex items-stretch gap-1">
         <button type="button" aria-label="Decrease font size" class="px-2 rounded-md border border-zinc-300 bg-white text-zinc-500 cursor-pointer hover:text-zinc-900" onClick={() => step(-1)}>
           <Minus size={12} />
@@ -26,7 +26,7 @@ export function FontSizeInput({ value, onChange }: { value: number; onChange: (s
           min={MIN}
           max={MAX}
           aria-label="Font size"
-          class="w-full min-w-0 bg-white border border-zinc-300 rounded-md text-xs text-zinc-700 px-2 py-1.5 outline-none focus:border-accent text-center"
+          class={`${compact ? "w-12" : "w-full"} min-w-0 bg-white border border-zinc-300 rounded-md text-xs text-zinc-700 px-2 py-1.5 outline-none focus:border-accent text-center`}
           value={value}
           onInput={(e) => {
             const n = parseInt((e.target as HTMLInputElement).value);
@@ -47,7 +47,7 @@ export function FontSizeInput({ value, onChange }: { value: number; onChange: (s
         </button>
       </div>
       {open && (
-        <div role="listbox" aria-label="Common font sizes" class="absolute z-20 right-0 mt-1 w-24 max-h-56 overflow-y-auto bg-white border border-zinc-200 rounded-md shadow-lg p-1">
+        <div role="listbox" aria-label="Common font sizes" class="absolute z-40 right-0 mt-1 w-24 max-h-56 overflow-y-auto bg-white border border-zinc-200 rounded-md shadow-lg p-1">
           {FONT_SIZES.map((size) => (
             <button
               key={size}

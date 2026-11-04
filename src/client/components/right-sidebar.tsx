@@ -30,7 +30,7 @@ import { hasTextBehind } from "../lib/text-behind";
  * "on brand" means day to day: the brand palette is one click away at the
  * moment of picking, not a page you have to remember to visit.
  */
-function BrandSwatches({ onPick }: { onPick: (color: string) => void }) {
+export function BrandSwatches({ onPick }: { onPick: (color: string) => void }) {
   const { activeBrandKit } = useEditor();
   if (!activeBrandKit || activeBrandKit.colors.length === 0) return null;
   return (
@@ -121,7 +121,7 @@ function GradientEditor() {
  * Solid or gradient fill for text and shapes. A gradient stretches with the
  * object, so resizing text keeps the blend across it.
  */
-function FillEditor({ label, solidDefault }: { label: string; solidDefault: string }) {
+export function FillEditor({ label, solidDefault }: { label: string; solidDefault: string }) {
   const { selectedObject, updateSelectedObject } = useEditor();
   if (!selectedObject) return null;
   const fill = selectedObject.fill;
@@ -193,7 +193,7 @@ function Slider({ label, value, min, max, step = 1, unit = "", onChange }: {
 }
 
 /** Rotation, tilt and shadow, like the text controls in text-behind-image. */
-function TextEffects() {
+export function TextEffects() {
   const { selectedObject, updateSelectedObject } = useEditor();
   if (!selectedObject) return null;
   const shadow = selectedObject.shadow instanceof fabric.Shadow ? selectedObject.shadow : null;
@@ -565,7 +565,7 @@ export function RightSidebar() {
                 )}
               </div>
               <p class="text-[10px] text-zinc-400 mt-1 leading-snug">
-                {cutoutBusy ? "The first run downloads the cut-out model (about 44 MB); after that it is cached."
+                {cutoutBusy ? "The first run downloads the cut-out model (about 88 MB); after that it is cached."
                   : hasTextBehind(canvas, selectedObject)
                     ? "The subject sits on top and follows this photo. Text you add goes behind it; click through the subject to select that text."
                     : "Cuts the subject out and lays it over the photo, with text in between."}

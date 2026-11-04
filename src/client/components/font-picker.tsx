@@ -4,10 +4,12 @@ import { useEditor } from "../context";
 import { FONT_FAMILIES } from "../fonts";
 import { fetchGoogleFonts, loadGoogleFont, type GoogleFont } from "../lib/google-fonts";
 
-export function FontPicker({ value, onChange, label }: {
+export function FontPicker({ value, onChange, label, compact = false }: {
   value: string;
   onChange: (family: string) => void;
   label: string;
+  /** Toolbar mode: no label or import link, and the list floats over the page. */
+  compact?: boolean;
 }) {
   const { customFonts, importFont } = useEditor();
   const input = useRef<HTMLInputElement>(null);
@@ -50,8 +52,8 @@ export function FontPicker({ value, onChange, label }: {
 
   const currentName = fonts.find((font) => font.family === value)?.name ?? value;
 
-  return <div>
-    <label class="text-[11px] text-zinc-400 mb-1 block">{label}</label>
+  return <div class={compact ? "relative w-40" : ""}>
+    {!compact && <label class="text-[11px] text-zinc-400 mb-1 block">{label}</label>}
     <button
       type="button"
       aria-label={`${label}: ${currentName}`}
@@ -60,10 +62,10 @@ export function FontPicker({ value, onChange, label }: {
       class="w-full flex items-center justify-between bg-white border border-zinc-300 rounded-md text-xs text-zinc-700 px-2 py-1.5 outline-none cursor-pointer focus:border-accent"
       onClick={() => setOpen(!open)}
     >
-      <span style={{ fontFamily: value }}>{currentName}</span>
+      <span class="truncate" style={{ fontFamily: value }}>{currentName}</span>
       {open ? <ChevronUp size={14} class="text-zinc-400" /> : <ChevronDown size={14} class="text-zinc-400" />}
     </button>
-    {open && <div id={id} role="group" aria-label="Available fonts" class="mt-1 max-h-72 overflow-y-auto bg-white border border-zinc-200 rounded-md shadow-lg p-1">
+    {open && <div id={id} role="group" aria-label="Available fonts" class={`mt-1 max-h-72 overflow-y-auto bg-white border border-zinc-200 rounded-md shadow-lg p-1 ${compact ? "absolute z-40 w-64 left-0" : ""}`}>
       <input
         type="search"
         value={query}
@@ -101,12 +103,12 @@ export function FontPicker({ value, onChange, label }: {
       {googleMatches.length > 80 && <p class="text-[10px] text-zinc-400 px-2 py-1">Showing 80 of {googleMatches.length}. Type to narrow.</p>}
       {catalogError && <p class="text-[10px] text-zinc-400 px-2 py-1">Google Fonts could not be loaded (offline?).</p>}
     </div>}
-    <button
+    {!compact && <button
       type="button"
       disabled={busy}
       class="mt-1 text-[11px] text-accent bg-transparent border-none cursor-pointer disabled:opacity-50"
       onClick={() => input.current?.click()}
-    >{busy ? "Importing…" : "Import font from computer…"}</button>
+    >{busy ? "Importing…" : "Import font from computer…"}</button>}
     <input
       ref={input}
       type="file"

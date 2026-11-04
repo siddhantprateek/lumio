@@ -2,8 +2,8 @@ import * as fabric from "fabric";
 
 /**
  * Cuts the subject out of an image, in the browser, with the same library
- * text-behind-image uses. The segmentation model (~44 MB, quantised) downloads
- * on first use and is then served from the browser cache.
+ * text-behind-image uses. It runs the full-precision ISNet model (~88 MB,
+ * fp16): the quantised one is half the size but frays hair and fine edges.
  * Resolves to a saved upload URL of the transparent PNG.
  *
  * `onProgress` gets 0–1 while the model downloads.
@@ -15,7 +15,7 @@ export async function cutOutSubject(
   const { removeBackground } = await import("@imgly/background-removal");
   const run = () =>
     removeBackground(image.getSrc(), {
-      model: "isnet_quint8",
+      model: "isnet_fp16",
       output: { format: "image/png" },
       progress: (key, current, total) => {
         if (key.startsWith("fetch:") && total > 0) onProgress?.(current / total);

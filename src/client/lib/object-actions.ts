@@ -92,13 +92,17 @@ export function alignToPage(obj: fabric.FabricObject, how: Alignment, pageWidth:
 
 export const isLocked = (obj: fabric.FabricObject) => !!obj.lockMovementX;
 
-export function setLocked(obj: fabric.FabricObject, locked: boolean) {
-  obj.set({
+export function lockProps(locked: boolean) {
+  return {
     lockMovementX: locked,
     lockMovementY: locked,
     lockRotation: locked,
     lockScalingX: locked,
     lockScalingY: locked,
     hasControls: !locked,
-  });
+  };
+}
+
+export function setLocked(obj: fabric.FabricObject, locked: boolean) {
+  obj.set(lockProps(locked));
 }
