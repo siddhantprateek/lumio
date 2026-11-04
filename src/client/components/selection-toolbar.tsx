@@ -4,6 +4,7 @@ import { Lock, LockOpen, CopyPlus, Trash2, MoreHorizontal } from "lucide-preact"
 import { useEditor } from "../context";
 import { duplicateObject, isLocked, lockProps } from "../lib/object-actions";
 import { OPEN_CONTEXT_MENU, type ContextMenuDetail } from "./object-context-menu";
+import { useCropSession } from "../lib/crop";
 
 const GAP = 44; // px between the element's top edge and the bar
 
@@ -17,6 +18,7 @@ export function SelectionToolbar() {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [transforming, setTransforming] = useState(false);
   const bar = useRef<HTMLDivElement>(null);
+  const cropping = useCropSession();
 
   useEffect(() => {
     if (!canvas) return;
@@ -66,7 +68,7 @@ export function SelectionToolbar() {
     return () => cancelAnimationFrame(frame);
   }, [canvas, selectedObject]);
 
-  if (!canvas || !selectedObject || !pos || transforming) return null;
+  if (!canvas || !selectedObject || !pos || transforming || cropping) return null;
   const locked = isLocked(selectedObject);
   const item = "p-1.5 rounded-md bg-transparent border-none text-zinc-600 cursor-pointer hover:bg-zinc-100 hover:text-zinc-900 flex";
 

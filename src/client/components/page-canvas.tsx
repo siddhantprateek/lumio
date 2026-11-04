@@ -1,6 +1,7 @@
 import { ensureCanvasFonts } from "../lib/google-fonts";
 import { OPEN_CONTEXT_MENU, type ContextMenuDetail } from "./object-context-menu";
 import { IMPORT_EVENT, readDataTransfer, type ImportDetail } from "../lib/clipboard-import";
+import { isCropping } from "../lib/crop";
 import { useRef, useEffect, useState } from "preact/hooks";
 import * as fabric from "fabric";
 import { useEditor } from "../context";
@@ -172,7 +173,7 @@ export function PageCanvas({ page, isActive, width, height, onActivate }: PageCa
     c.stopContextMenu = true;
     c.on("mouse:down", (opt) => {
       const e = opt.e as MouseEvent;
-      if (e.button !== 2) return;
+      if (e.button !== 2 || isCropping(c)) return;
       const hit = opt.target ?? null;
       // A bottom-layer shape filling the whole page is the page's backdrop
       // (templates draw their background that way): show the page menu.

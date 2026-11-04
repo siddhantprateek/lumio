@@ -24,6 +24,10 @@ import {
   Sparkles,
   MoveHorizontal,
   Wand2,
+  Crop,
+  Check,
+  X,
+  RotateCcw,
 } from "lucide-preact";
 import { useEditor } from "../context";
 import { FontPicker } from "./font-picker";
@@ -32,6 +36,9 @@ import { FillEditor, BrandSwatches } from "./right-sidebar";
 import { Popover, useCanvasTick, useEditorUI } from "./editor-ui";
 import { hasTextBehind } from "../lib/text-behind";
 import { specToCss, gradientToSpec } from "../lib/gradient";
+import {
+  cancelCrop, commitCrop, cropBlockedReason, resetCrop, setCropRatio, setCropZoom, startCrop, useCropSession,
+} from "../lib/crop";
 
 const btn =
   "flex items-center gap-1.5 h-8 px-2 rounded-md text-xs font-medium bg-transparent border-none text-zinc-700 cursor-pointer hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap";
@@ -209,6 +216,14 @@ function ImageBar() {
       </Btn>
       <Sep />
       <Btn title="Replace image" onClick={() => file.current?.click()}><Replace size={14} />Replace</Btn>
+      <Btn title={cropBlockedReason(image) ?? "Crop"} disabled={!!cropBlockedReason(image)}
+        onClick={() => {
+          if (!canvas) return;
+          setPanel(null);
+          void startCrop(canvas, image, () => {});
+        }}>
+        <Crop size={14} />Crop
+      </Btn>
       <input ref={file} type="file" accept="image/*" class="hidden" aria-label="Replacement image"
         onChange={(e) => {
           const f = e.currentTarget.files?.[0];
@@ -306,6 +321,47 @@ function ShapeBar() {
   );
 }
 
+const RATIOS: { label: string; value: number | "original" | null }[] = [
+  { label: "Free", value: null },
+  { label: "Original", value: "original" },
+  { label: "1:1", value: 1 },
+  { label: "4:5", value: 4 / 5 },
+  { label: "3:4", value: 3 / 4 },
+  { label: "16:9", value: 16 / 9 },
+  { label: "9:16", value: 9 / 16 },
+];
+
+/** Shown instead of the image tools while cropping. */
+function CropBar({ session }: { session: NonNullable<ReturnType<typeof useCropSession>> }) {
+  const original = session.natural.width / session.natural.height;
+  const isOn = (v: number | "original" | null) =>
+    v === null ? session.ratio === null : Math.abs((v === "original" ? original : v) - (session.ratio ?? -1)) < 1e-6;
+  return (
+    <>
+      <span class="flex items-center gap-1.5 px-2 text-xs font-semibold text-zinc-800"><Crop size={14} />Crop</span>
+      <Sep />
+      {RATIOS.map((r) => (
+        <Btn key={r.label} title={`Aspect ratio ${r.label}`} on={isOn(r.value)}
+          onClick={() => setCropRatio(r.value === "original" ? original : r.value)}>{r.label}</Btn>
+      ))}
+      <Sep />
+      <label class="flex items-center gap-2 px-2 text-xs text-zinc-600">
+        Zoom
+        <input type="range" min="1" max="3" step="0.01" aria-label="Crop zoom" class="w-24 accent-accent"
+          value={session.zoom} onInput={(e) => setCropZoom(parseFloat((e.target as HTMLInputElement).value))} />
+      </label>
+      <Btn title="Reset crop" onClick={resetCrop}><RotateCcw size={14} />Reset</Btn>
+      <Sep />
+      <Btn title="Cancel (Esc)" onClick={cancelCrop}><X size={14} />Cancel</Btn>
+      <button type="button" title="Apply crop (Enter)"
+        class="flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium border-none bg-accent text-[#ffffff] cursor-pointer hover:bg-accent-hover"
+        onClick={commitCrop}>
+        <Check size={14} />Done
+      </button>
+    </>
+  );
+}
+
 /**
  * Canva-style contextual bar above the canvas. Its buttons depend on what is
  * selected: image tools, text formatting, or shape styling.
@@ -313,12 +369,18 @@ function ShapeBar() {
 export function ContextToolbar() {
   const { canvas, selectedObject } = useEditor();
   useCanvasTick(canvas);
+  const crop = useCropSession();
   const isText = selectedObject instanceof fabric.Textbox || selectedObject instanceof fabric.IText;
   const isImage = selectedObject instanceof fabric.FabricImage;
 
   return (
     <div class="min-h-12 shrink-0 flex items-center justify-center px-3 py-1.5 border-b border-zinc-200 bg-surface relative z-30">
-      {selectedObject ? (
+      {crop ? (
+        <div role="toolbar" aria-label="Crop tools"
+          class="flex items-center gap-0.5 px-1.5 py-1 bg-white border border-accent rounded-lg shadow-sm max-w-full flex-wrap">
+          <CropBar session={crop} />
+        </div>
+      ) : selectedObject ? (
         <div role="toolbar" aria-label="Element tools"
           class="flex items-center gap-0.5 px-1.5 py-1 bg-white border border-zinc-200 rounded-lg shadow-sm max-w-full overflow-visible flex-wrap">
           {isImage ? <ImageBar /> : isText ? <TextBar /> : <ShapeBar />}

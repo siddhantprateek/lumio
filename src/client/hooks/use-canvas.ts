@@ -7,6 +7,7 @@ import { buildGradient, parseGradientCss } from "../lib/gradient";
 import { cutOutSubject } from "../lib/cutout";
 import { installTextBehind, linkCutout, syncCutout, unlinkCutout } from "../lib/text-behind";
 import { ensureCanvasFonts } from "../lib/google-fonts";
+import { cancelCrop, isCropping, serializeCanvas } from "../lib/crop";
 import { downloadDataURL, exportPagesToPDF, renderPageToPNG, slugify } from "../lib/export";
 
 const MAX_HISTORY = 50;
@@ -78,13 +79,15 @@ export function useCanvasState(onChange: () => void = () => {}) {
     if (isRestoringRef.current.has(pageId)) return;
     const canvas = canvasMapRef.current.get(pageId);
     if (!canvas) return;
+    // Crop mode adds temporary layers; one step is saved when the crop is applied.
+    if (isCropping(canvas)) return;
     // An edit lands on top of the resize. Restoring the snapshot would now
     // throw this work away too, so the resize stops being undoable here.
     if (resizeSnapshotRef.current) {
       resizeSnapshotRef.current = null;
       setCanUndoResize(false);
     }
-    const json = JSON.stringify(canvas.toJSON());
+    const json = serializeCanvas(canvas);
     let hist = historyMapRef.current.get(pageId);
     if (!hist) {
       hist = { entries: [], index: -1 };
@@ -457,6 +460,7 @@ export function useCanvasState(onChange: () => void = () => {}) {
       if (!canvas || !pageId) return;
       const hist = historyMapRef.current.get(pageId);
       if (!hist || index < 0 || index >= hist.entries.length) return;
+      if (isCropping(canvas)) cancelCrop();
       isRestoringRef.current.add(pageId);
       hist.index = index;
       const json = hist.entries[index];
@@ -638,13 +642,13 @@ export function useCanvasState(onChange: () => void = () => {}) {
   const getCanvasJSON = useCallback(() => {
     const canvas = getActiveCanvas();
     if (!canvas) return "{}";
-    return JSON.stringify(canvas.toJSON());
+    return serializeCanvas(canvas);
   }, [getActiveCanvas]);
 
   const getCanvasJSONForPage = useCallback((pageId: string) => {
     const canvas = canvasMapRef.current.get(pageId);
     if (!canvas) return "{}";
-    return JSON.stringify(canvas.toJSON());
+    return serializeCanvas(canvas);
   }, []);
 
   const loadTemplate = useCallback(

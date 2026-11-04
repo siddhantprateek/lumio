@@ -24,6 +24,7 @@ import { buildObjectGradient, gradientToSpec, specToCss, type GradientSpec } fro
 import { GradientControls } from "./gradient-controls";
 import { FontSizeInput } from "./font-size-input";
 import { hasTextBehind } from "../lib/text-behind";
+import { useCropSession } from "../lib/crop";
 
 /**
  * The active kit's colours, offered wherever a colour is chosen. This is what
@@ -252,9 +253,24 @@ export function RightSidebar() {
   const { removeBackground, removeTextBehind, cutoutBusy, cutoutProgress, cutoutError, selectedObject, updateSelectedObject, changeLayer, deleteSelected, canvas, setBackground, canvasWidth, canvasHeight } =
     useEditor();
 
+  const cropping = useCropSession();
   const isText = selectedObject instanceof fabric.Textbox || selectedObject instanceof fabric.IText;
   const isImage = selectedObject instanceof fabric.FabricImage;
   const isShape = selectedObject && !isText && !isImage;
+
+  // The crop frame is a temporary layer, not an element to style.
+  if (cropping) {
+    return (
+      <aside class="w-[280px] bg-white border-l border-zinc-200 flex flex-col shrink-0">
+        <div class="p-4 border-b border-zinc-200">
+          <h2 class="text-xs font-semibold text-zinc-400 uppercase tracking-wider">Crop</h2>
+        </div>
+        <p class="p-4 text-xs text-zinc-500 leading-relaxed m-0">
+          Drag the handles to crop. Drag inside the frame to move the picture. Press Enter or Done to apply, Esc to cancel.
+        </p>
+      </aside>
+    );
+  }
   const objects = canvas?.getObjects() ?? [];
   const layerIndex = selectedObject ? objects.indexOf(selectedObject) : -1;
   const layerCount = objects.length;
