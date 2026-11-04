@@ -1,6 +1,7 @@
 import * as fabric from "fabric";
 import { LumioTone } from "./tone-filter";
 import { LumioPop, pop, popPixel, type PopProps } from "./pop-filter";
+import { effectFilters, type EffectState } from "./effects";
 
 /*
  * Image looks, Canva-style. Every look is a single 4×5 colour matrix
@@ -264,10 +265,11 @@ export interface ShadowStyle {
   kind: "none" | "glow" | "drop";
 }
 
-type Edited = fabric.FabricImage & { lumioLook?: LookState; lumioAdjust?: Adjustments };
+type Edited = fabric.FabricImage & { lumioLook?: LookState; lumioAdjust?: Adjustments; lumioEffects?: EffectState[] };
 
 export const lookOf = (img: fabric.FabricImage) => (img as Edited).lumioLook;
 export const adjustOf = (img: fabric.FabricImage) => ({ ...NO_ADJUSTMENTS, ...(img as Edited).lumioAdjust });
+export const effectsOf = (img: fabric.FabricImage): EffectState[] => (img as Edited).lumioEffects ?? [];
 
 /** The pop part of the active look at its intensity, if the look has one. */
 export function lookPop(state: LookState | undefined): PopProps | undefined {
@@ -302,7 +304,7 @@ const isIdentity = (m: Matrix) => m.every((v, i) => Math.abs(v - IDENTITY[i]) < 
  * then white balance / light / colour, then tone curves and vignette, then
  * texture (sharpen or soften).
  */
-export function buildFilters(state: LookState | undefined, adjust: Adjustments): fabric.filters.BaseFilter<string>[] {
+export function buildFilters(state: LookState | undefined, adjust: Adjustments, effects: EffectState[] = []): fabric.filters.BaseFilter<string>[] {
   const a = { ...NO_ADJUSTMENTS, ...adjust };
   const filters: fabric.filters.BaseFilter<string>[] = [];
   const popProps = lookPop(state);
@@ -334,6 +336,8 @@ export function buildFilters(state: LookState | undefined, adjust: Adjustments):
   }
   const soften = Math.max(a.blur, a.sharpness < 0 ? -a.sharpness / 2 : 0);
   if (soften > 0) filters.push(new fabric.filters.Blur({ blur: soften / 200 }));
+  // Effects last, in the order they were added (grain on top of the grade, etc.).
+  filters.push(...effectFilters(effects));
   return filters;
 }
 
@@ -374,12 +378,19 @@ export function autoAdjust(img: fabric.FabricImage): Adjustments {
 }
 
 /** Applies a look / adjustments to an image (and its linked cut-out, if any). */
-export function applyEdits(img: fabric.FabricImage, state: LookState | undefined, adjust: Adjustments, also?: fabric.FabricImage) {
+export function applyEdits(
+  img: fabric.FabricImage,
+  state: LookState | undefined,
+  adjust: Adjustments,
+  also?: fabric.FabricImage,
+  effects: EffectState[] = effectsOf(img),
+) {
   const edited = img as Edited;
   edited.lumioLook = state;
   edited.lumioAdjust = adjust;
+  edited.lumioEffects = effects;
   for (const target of also ? [img, also] : [img]) {
-    target.filters = buildFilters(state, adjust);
+    target.filters = buildFilters(state, adjust, effects);
     target.applyFilters();
   }
 }

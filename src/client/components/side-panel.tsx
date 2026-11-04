@@ -247,7 +247,7 @@ export function SidePanel() {
   if (!panel) return null;
   return (
     <aside aria-label={TITLES[panel]}
-      class="absolute left-3 top-3 bottom-3 w-72 z-20 bg-white border border-zinc-200 rounded-xl shadow-xl flex flex-col">
+      class="absolute left-3 top-3 bottom-3 w-72 z-[35] bg-white border border-zinc-200 rounded-xl shadow-xl flex flex-col">
       <div class="flex items-center justify-between px-4 pt-3 pb-2">
         <h2 class="text-sm font-semibold text-zinc-800 m-0">{TITLES[panel]}</h2>
         <button type="button" aria-label="Close panel" class="p-1 rounded bg-transparent border-none text-zinc-400 cursor-pointer hover:text-zinc-900 hover:bg-zinc-100"

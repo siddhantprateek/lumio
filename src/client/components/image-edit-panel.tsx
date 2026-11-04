@@ -10,6 +10,7 @@ import {
   NO_ADJUSTMENTS,
   adjustOf,
   applyEdits,
+  effectsOf,
   autoAdjust,
   lookOf,
   renderThumbnail,
@@ -18,8 +19,10 @@ import {
   type Look,
   type LookState,
 } from "../lib/image-filters";
+import { defaultValues, findEffect, type EffectState } from "../lib/effects";
+import { EffectDetail, EffectsGallery, EffectsSection } from "./effects-panel";
 
-type View = "main" | "filters" | "adjust";
+type View = "main" | "filters" | "adjust" | "effects" | "effect";
 
 /**
  * Thumbnails of the selected image through every look. Rendered once per
@@ -97,16 +100,28 @@ export function ImageEditPanel() {
   const current = lookOf(img);
   const adjust = adjustOf(img);
   const linked = hasTextBehind(canvas, img);
+  const effects = effectsOf(img);
+  const [fxIndex, setFxIndex] = useState(0);
 
   // Dragging a slider re-filters live; the history step is saved once, when it settles.
   const commitTimer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(commitTimer.current), []);
-  const apply = (state: LookState | undefined, adj: Adjustments) => {
+  const [, rerender] = useState(0);
+  const apply = (state: LookState | undefined, adj: Adjustments, fx: EffectState[] = effects) => {
     const cutout = canvas ? (findCutout(canvas, img) as fabric.FabricImage | undefined) : undefined;
-    applyEdits(img, state, adj, cutout);
+    applyEdits(img, state, adj, cutout, fx);
     canvas?.requestRenderAll();
+    rerender((n) => n + 1);
     window.clearTimeout(commitTimer.current);
-    commitTimer.current = window.setTimeout(() => updateSelectedObject({ lumioLook: state, lumioAdjust: adj }), 250);
+    commitTimer.current = window.setTimeout(() => updateSelectedObject({ lumioLook: state, lumioAdjust: adj, lumioEffects: fx }), 250);
+  };
+  const setEffects = (fx: EffectState[]) => apply(current, adjust, fx);
+  const addEffect = (id: string) => {
+    const def = findEffect(id);
+    if (!def) return;
+    setEffects([...effects, { id, values: defaultValues(def) }]);
+    setFxIndex(effects.length);
+    setView("effect");
   };
 
   const pick = (look: Look | null) => {
@@ -149,6 +164,18 @@ export function ImageEditPanel() {
       )}
     </div>
   );
+
+  if (view === "effects") {
+    return <EffectsGallery img={img} effects={effects} onAdd={addEffect}
+      onOpen={(i) => { setFxIndex(i); setView("effect"); }} onBack={() => setView("main")} />;
+  }
+
+  if (view === "effect" && effects[fxIndex]) {
+    return <EffectDetail effect={effects[fxIndex]}
+      onChange={(next) => setEffects(effects.map((e, i) => (i === fxIndex ? next : e)))}
+      onRemove={() => { setEffects(effects.filter((_, i) => i !== fxIndex)); setView("main"); }}
+      onBack={() => setView("effects")} />;
+  }
 
   if (view === "filters") {
     return (
@@ -279,6 +306,12 @@ export function ImageEditPanel() {
           ))}
         </div>
       </section>
+
+      <EffectsSection effects={effects}
+        onSeeAll={() => setView("effects")}
+        onOpen={(i) => { setFxIndex(i); setView("effect"); }}
+        onToggle={(i) => setEffects(effects.map((e, j) => (j === i ? { ...e, enabled: e.enabled === false } : e)))}
+        onRemove={(i) => setEffects(effects.filter((_, j) => j !== i))} />
 
       <section>
         <h3 class="text-xs font-semibold text-zinc-700 mb-2 m-0">Shadows</h3>
