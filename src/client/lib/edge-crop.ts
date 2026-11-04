@@ -28,6 +28,45 @@ function midpoint(obj: fabric.FabricObject, keys: [string, string]) {
   return new fabric.Point((c[keys[0]].x + c[keys[1]].x) / 2, (c[keys[0]].y + c[keys[1]].y) / 2);
 }
 
+/**
+ * The frame has grown past the picture's edge on the dragged axis. Like Canva,
+ * scale the picture up (keeping its proportions) until it covers the new
+ * frame; the other axis is then cropped automatically, centred on what was
+ * visible. `nextLocal` is the wanted frame size along the dragged axis, in the
+ * image's current (pre-scale) pixel units.
+ */
+function fillFrame(img: fabric.FabricImage, horizontal: boolean, nextLocal: number, movesSourceStart: boolean) {
+  const natural = img.getOriginalSize();
+  const sx = Math.abs(img.scaleX ?? 1), sy = Math.abs(img.scaleY ?? 1);
+  // Wanted frame size on the page.
+  const frameW = horizontal ? nextLocal * sx : (img.width ?? 0) * sx;
+  const frameH = horizontal ? (img.height ?? 0) * sy : nextLocal * sy;
+  const scale = Math.max(frameW / natural.width, frameH / natural.height);
+  const w = Math.min(natural.width, frameW / scale);
+  const h = Math.min(natural.height, frameH / scale);
+
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  const cropX0 = img.cropX ?? 0, cropY0 = img.cropY ?? 0;
+  const w0 = img.width ?? w, h0 = img.height ?? h;
+  let cropX: number, cropY: number;
+  if (horizontal) {
+    // Keep the fixed edge's spot in the picture; centre the other axis.
+    cropX = movesSourceStart ? clamp(cropX0 + w0 - w, 0, natural.width - w) : clamp(cropX0, 0, natural.width - w);
+    cropY = clamp(cropY0 + h0 / 2 - h / 2, 0, natural.height - h);
+  } else {
+    cropY = movesSourceStart ? clamp(cropY0 + h0 - h, 0, natural.height - h) : clamp(cropY0, 0, natural.height - h);
+    cropX = clamp(cropX0 + w0 / 2 - w / 2, 0, natural.width - w);
+  }
+  return {
+    width: w,
+    height: h,
+    cropX,
+    cropY,
+    scaleX: scale * Math.sign(img.scaleX ?? 1),
+    scaleY: scale * Math.sign(img.scaleY ?? 1),
+  };
+}
+
 function cropHandler(side: Side): fabric.TransformActionHandler {
   return (_e, transform, x, y) => {
     const img = transform.target as fabric.FabricImage;
@@ -48,12 +87,18 @@ function cropHandler(side: Side): fabric.TransformActionHandler {
     // Local "far" sides map to the source's far edge unless the image is flipped.
     const movesSourceStart = (side === "l" || side === "t") !== !!flipped;
     const max = movesSourceStart ? offset + size : full - offset;
-    next = Math.max(MIN, Math.min(max, next));
+    next = Math.max(MIN, next);
     if (Math.abs(next - size) < 0.01) return false;
 
     const fixedBefore = midpoint(img, FIXED[side]);
-    const props: Record<string, number> = horizontal ? { width: next } : { height: next };
-    if (movesSourceStart) props[horizontal ? "cropX" : "cropY"] = offset + (size - next);
+    let props: Record<string, number>;
+    if (next <= max) {
+      // Plain crop: there is still picture to reveal (or we are trimming).
+      props = horizontal ? { width: next } : { height: next };
+      if (movesSourceStart) props[horizontal ? "cropX" : "cropY"] = offset + (size - next);
+    } else {
+      props = fillFrame(img, horizontal, next, movesSourceStart);
+    }
     img.set(props);
     img.setCoords();
     // Keep the opposite edge where it was.
