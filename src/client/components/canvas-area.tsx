@@ -103,7 +103,7 @@ export function CanvasArea() {
     <div
       ref={wrapperRef}
       class="flex-1 overflow-auto"
-      style={{ background: "#E8EAEF" }}
+      style={{ background: "var(--color-surface-hover)" }}
     >
       {/* Spacer div — its dimensions match the visual (scaled) size so overflow scrollbars work */}
       <div

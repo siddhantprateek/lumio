@@ -12,6 +12,36 @@
   --color-accent-light: rgba(99, 102, 241, 0.08);
 }
 
+/* ── Dark theme ────────────────────────────────────────────────────────
+   Components use the zinc scale + surface tokens, so dark mode just inverts
+   those variables (toggled by the `dark` class on <html>). */
+.dark {
+  color-scheme: dark;
+  --color-surface: #0f0f12;
+  --color-surface-secondary: #18181b;
+  --color-surface-card: #18181b;
+  --color-surface-hover: #27272a;
+  --color-border-dim: #27272a;
+  --color-border-mid: #3f3f46;
+  --color-accent-light: rgba(99, 102, 241, 0.18);
+  --color-zinc-50: #09090b;
+  --color-zinc-100: #1f1f23;
+  --color-zinc-200: #2a2a2f;
+  --color-zinc-300: #3f3f46;
+  --color-zinc-400: #8b8b94;
+  --color-zinc-500: #a1a1aa;
+  --color-zinc-600: #d4d4d8;
+  --color-zinc-700: #e4e4e7;
+  --color-zinc-800: #f4f4f5;
+  --color-zinc-900: #fafafa;
+}
+.dark .bg-white,
+.dark .bg-\[\#F3F4F7\] { background-color: var(--color-surface-secondary); }
+.dark .bg-\[\#F3F4F7\] { background-color: var(--color-surface); }
+.dark .canvas-container {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 25px 50px -12px rgba(0, 0, 0, 0.6) !important;
+}
+
 /* ── Base ──────────────────────────────────────────────────────────── */
 html, body, #app {
   @apply h-full w-full overflow-hidden;

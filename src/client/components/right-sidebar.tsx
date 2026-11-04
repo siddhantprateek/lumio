@@ -14,10 +14,13 @@ import {
   MoveUp,
   MoveDown,
   SendToBack,
+  Scissors,
+  Layers,
 } from "lucide-preact";
 import * as fabric from "fabric";
 import { useEditor } from "../context";
 import { FontPicker } from "./font-picker";
+import { gradientToSpec, specToCss, type GradientSpec } from "../lib/gradient";
 
 /**
  * The active kit's colours, offered wherever a colour is chosen. This is what
@@ -90,8 +93,36 @@ function FieldNameInput({
   );
 }
 
+/** Two-colour gradient background with an angle. Applied live. */
+function GradientEditor() {
+  const { canvas, setBackground } = useEditor();
+  const current = gradientToSpec(canvas?.backgroundColor);
+  const [draft, setSpec] = useState<GradientSpec>({ from: "#667eea", to: "#764ba2", angle: 135 });
+  // The live canvas background wins, so presets picked elsewhere show up here.
+  const spec = current ?? draft;
+  const apply = (next: GradientSpec) => {
+    setSpec(next);
+    setBackground("gradient", specToCss(next));
+  };
+  return (
+    <div class="flex flex-col gap-2">
+      <label class="text-[11px] text-zinc-400">Gradient background</label>
+      <div class="flex items-center gap-2">
+        <input type="color" aria-label="Gradient start colour" class="w-8 h-8 rounded border border-zinc-300 cursor-pointer bg-transparent" value={spec.from}
+          onChange={(e) => apply({ ...spec, from: (e.target as HTMLInputElement).value })} />
+        <div class="flex-1 h-8 rounded border border-zinc-300" style={{ background: specToCss(spec) }} />
+        <input type="color" aria-label="Gradient end colour" class="w-8 h-8 rounded border border-zinc-300 cursor-pointer bg-transparent" value={spec.to}
+          onChange={(e) => apply({ ...spec, to: (e.target as HTMLInputElement).value })} />
+      </div>
+      <label class="text-[11px] text-zinc-400 flex justify-between">Angle<span class="font-mono">{spec.angle}°</span></label>
+      <input type="range" min="0" max="360" step="5" class="w-full accent-accent" value={spec.angle}
+        onChange={(e) => apply({ ...spec, angle: parseInt((e.target as HTMLInputElement).value) })} />
+    </div>
+  );
+}
+
 export function RightSidebar() {
-  const { selectedObject, updateSelectedObject, changeLayer, deleteSelected, canvas, setBackground, canvasWidth, canvasHeight } =
+  const { removeBackground, cutoutBusy, cutoutError, selectedObject, updateSelectedObject, changeLayer, deleteSelected, canvas, setBackground, canvasWidth, canvasHeight } =
     useEditor();
 
   const isText = selectedObject instanceof fabric.Textbox || selectedObject instanceof fabric.IText;
@@ -119,6 +150,7 @@ export function RightSidebar() {
             onChange={(e) => setBackground("color", (e.target as HTMLInputElement).value)}
           />
           <BrandSwatches onPick={(color) => setBackground("color", color)} />
+          <GradientEditor />
         </div>
       </aside>
     );
@@ -435,6 +467,26 @@ export function RightSidebar() {
         {/* ── Image properties ──────────────────────────────────────── */}
         {isImage && (
           <>
+            <div>
+              <label class="text-[11px] text-zinc-400 mb-1 block">Background</label>
+              <div class="flex flex-col gap-1">
+                <button type="button" disabled={cutoutBusy}
+                  class="flex items-center justify-center gap-1.5 p-1.5 rounded-md border border-zinc-300 bg-transparent text-xs text-zinc-600 cursor-pointer hover:text-zinc-900 hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-wait"
+                  onClick={() => removeBackground(false)}>
+                  <Scissors size={14} />{cutoutBusy ? "Working…" : "Remove background"}
+                </button>
+                <button type="button" disabled={cutoutBusy}
+                  class="flex items-center justify-center gap-1.5 p-1.5 rounded-md border border-zinc-300 bg-transparent text-xs text-zinc-600 cursor-pointer hover:text-zinc-900 hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-wait"
+                  onClick={() => removeBackground(true)}>
+                  <Layers size={14} />{cutoutBusy ? "Working…" : "Put text behind subject"}
+                </button>
+              </div>
+              <p class="text-[10px] text-zinc-400 mt-1 leading-snug">
+                {cutoutBusy ? "First run downloads the cut-out model, so it can take a moment."
+                  : "Text behind subject keeps the photo and adds the subject on top. New text goes between them."}
+              </p>
+              {cutoutError && <p role="alert" class="text-[11px] text-red-500 mt-1">{cutoutError}</p>}
+            </div>
             <div>
               <label class="text-[11px] text-zinc-400 mb-1 block">Flip</label>
               <div class="flex gap-1">

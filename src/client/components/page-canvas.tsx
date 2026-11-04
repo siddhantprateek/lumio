@@ -1,3 +1,4 @@
+import { ensureCanvasFonts } from "../lib/google-fonts";
 import { useRef, useEffect } from "preact/hooks";
 import * as fabric from "fabric";
 import { useEditor } from "../context";
@@ -133,7 +134,10 @@ export function PageCanvas({ page, isActive, width, height, onActivate }: PageCa
     // Load page content
     if (page.canvas_json && page.canvas_json !== "{}") {
       try {
-        c.loadFromJSON(JSON.parse(page.canvas_json)).then(() => c.requestRenderAll());
+        c.loadFromJSON(JSON.parse(page.canvas_json)).then(() => {
+          c.requestRenderAll();
+          void ensureCanvasFonts(c);
+        });
       } catch {
         // ignore parse errors
       }

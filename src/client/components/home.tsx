@@ -3,6 +3,7 @@ import { Plus, Trash2, Edit3, Sparkles } from "lucide-preact";
 import type { Design, Template } from "../types";
 import { api } from "../api";
 import { TemplateCard } from "./template-card";
+import { ThemeToggle } from "./theme-toggle";
 
 interface HomeProps {
   designs: Design[];
@@ -61,13 +62,16 @@ export function Home({
               {designs.length} design{designs.length !== 1 ? "s" : ""}
             </p>
           </div>
-          <button
-            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold border-none cursor-pointer bg-[#6366f1] text-white hover:bg-[#5558e6] transition-all shadow-sm"
-            onClick={handleCreate}
-          >
-            <Plus size={15} />
-            New Design
-          </button>
+          <div class="flex items-center gap-2">
+            <ThemeToggle />
+            <button
+              class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold border-none cursor-pointer bg-[#6366f1] text-white hover:bg-[#5558e6] transition-all shadow-sm"
+              onClick={handleCreate}
+            >
+              <Plus size={15} />
+              New Design
+            </button>
+          </div>
         </div>
       </div>
 

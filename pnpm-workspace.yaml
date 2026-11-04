@@ -9,6 +9,7 @@ ignoredOptionalDependencies:
 allowBuilds:
   canvas: false
   esbuild: true
+  protobufjs: false
   sharp: false
   workerd: true
 minimumReleaseAgeExclude:

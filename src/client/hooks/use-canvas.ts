@@ -3,6 +3,9 @@ import * as fabric from "fabric";
 import type { Template, BrandKit } from "../types";
 import { reflowCanvas, type Dimensions } from "../resize";
 import { buildColorMap, brandFontFor, isHex } from "../lib/brand";
+import { buildGradient, parseGradientCss } from "../lib/gradient";
+import { cutOutSubject } from "../lib/cutout";
+import { ensureCanvasFonts } from "../lib/google-fonts";
 import { downloadDataURL, exportPagesToPDF, renderPageToPNG, slugify } from "../lib/export";
 
 const MAX_HISTORY = 50;
@@ -182,6 +185,9 @@ export function useCanvasState(onChange: () => void = () => {}) {
         editable: true,
       });
       canvas.add(text);
+      // New text goes behind any cut-out subject, so text-behind-subject keeps working.
+      const firstCutout = canvas.getObjects().findIndex((o) => (o as any).isCutout);
+      if (firstCutout >= 0) canvas.moveObjectTo(text, firstCutout);
       canvas.setActiveObject(text);
       canvas.requestRenderAll();
     },
@@ -281,7 +287,8 @@ export function useCanvasState(onChange: () => void = () => {}) {
       const pageId = activeCanvasIdRef.current;
       if (!canvas || !pageId) return;
       if (type === "color" || type === "gradient") {
-        canvas.backgroundColor = value;
+        const spec = type === "gradient" ? parseGradientCss(value) : null;
+        canvas.backgroundColor = spec ? buildGradient(spec, canvasWidth, canvasHeight) : value;
         canvas.requestRenderAll();
         saveHistory(pageId);
       } else if (type === "image") {
@@ -301,6 +308,50 @@ export function useCanvasState(onChange: () => void = () => {}) {
       }
     },
     [getActiveCanvas, canvasWidth, canvasHeight, saveHistory]
+  );
+
+  // ── Cut-outs ────────────────────────────────────────────────────────
+
+  const [cutoutBusy, setCutoutBusy] = useState(false);
+  const [cutoutError, setCutoutError] = useState<string | null>(null);
+
+  /**
+   * Removes the background of the selected image. With `keepOriginal` the
+   * subject is also placed on top as its own layer, so text added between the
+   * two sits behind the subject.
+   */
+  const removeBackground = useCallback(
+    async (keepOriginal: boolean) => {
+      const canvas = getActiveCanvas();
+      const pageId = activeCanvasIdRef.current;
+      const target = selectedObject;
+      if (!canvas || !pageId || !(target instanceof fabric.FabricImage)) return;
+      setCutoutBusy(true);
+      setCutoutError(null);
+      try {
+        const url = await cutOutSubject(target);
+        if (!keepOriginal) {
+          await target.setSrc(url, { crossOrigin: "anonymous" });
+          canvas.requestRenderAll();
+          saveHistory(pageId);
+        } else {
+          const cutout = await target.clone();
+          await cutout.setSrc(url, { crossOrigin: "anonymous" });
+          (cutout as any).isCutout = true;
+          canvas.add(cutout);
+          canvas.bringObjectToFront(cutout);
+          canvas.setActiveObject(cutout);
+          canvas.requestRenderAll();
+        }
+        bumpSelection();
+      } catch (e) {
+        console.error("Background removal failed:", e);
+        setCutoutError("Could not remove the background. Check your connection and try again.");
+      } finally {
+        setCutoutBusy(false);
+      }
+    },
+    [getActiveCanvas, selectedObject, saveHistory]
   );
 
   // ── Object manipulation ─────────────────────────────────────────────
@@ -564,6 +615,7 @@ export function useCanvasState(onChange: () => void = () => {}) {
       if (canvas && pageId) {
         isRestoringRef.current.add(pageId);
         canvas.loadFromJSON(JSON.parse(template.canvas_json)).then(() => {
+          void ensureCanvasFonts(canvas);
           canvas.requestRenderAll();
           isRestoringRef.current.delete(pageId);
           historyMapRef.current.set(pageId, {
@@ -670,6 +722,9 @@ export function useCanvasState(onChange: () => void = () => {}) {
     addShape,
     addImage,
     setBackground,
+    removeBackground,
+    cutoutBusy,
+    cutoutError,
     updateSelectedObject,
     changeLayer,
     deleteSelected,

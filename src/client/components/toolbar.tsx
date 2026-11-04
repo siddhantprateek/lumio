@@ -20,6 +20,7 @@ import {
   MIN_CANVAS_SIDE,
   MAX_CANVAS_SIDE,
 } from "../context";
+import { ThemeToggle } from "./theme-toggle";
 
 export function Toolbar() {
   const {
@@ -284,6 +285,8 @@ export function Toolbar() {
         </button>
 
         <div class="w-px h-5 bg-zinc-300 mx-1" />
+
+        <ThemeToggle />
 
         <div class="relative">
           <button

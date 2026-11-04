@@ -52,6 +52,9 @@ export interface EditorContextValue {
   addShape: (type: "rect" | "circle" | "line" | "triangle") => void;
   addImage: (url: string) => void;
   setBackground: (type: "color" | "gradient" | "image", value: string) => void;
+  removeBackground: (keepOriginal: boolean) => Promise<void>;
+  cutoutBusy: boolean;
+  cutoutError: string | null;
   updateSelectedObject: (props: Record<string, unknown>) => void;
   changeLayer: (action: "front" | "forward" | "backward" | "back") => void;
   deleteSelected: () => void;

@@ -46,6 +46,12 @@ const GRADIENT_PRESETS = [
   "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)",
   "linear-gradient(135deg, #fa709a 0%, #fee140 100%)",
   "linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)",
+  "linear-gradient(180deg, #0f2027 0%, #2c5364 100%)",
+  "linear-gradient(135deg, #ff9a9e 0%, #fad0c4 100%)",
+  "linear-gradient(90deg, #f6d365 0%, #fda085 100%)",
+  "linear-gradient(135deg, #1a1a2e 0%, #e11d48 100%)",
+  "linear-gradient(180deg, #2563eb 0%, #7c3aed 100%)",
+  "linear-gradient(135deg, #11998e 0%, #38ef7d 100%)",
 ];
 
 const BG_COLORS = [
@@ -284,10 +290,7 @@ export function LeftSidebar() {
                           key={i}
                           class="w-full aspect-square rounded-md border border-zinc-300 cursor-pointer transition-all hover:scale-110 hover:border-accent"
                           style={{ background: g }}
-                          onClick={() => {
-                            const match = g.match(/#[0-9a-f]{6}/gi);
-                            if (match) setBackground("color", match[0]);
-                          }}
+                          onClick={() => setBackground("gradient", g)}
                         />
                       ))}
                     </div>
