@@ -3,7 +3,7 @@ import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import type * as fabric from "fabric";
 
 /** Which drawer is open beside the canvas (Canva's Position / Effects panels). */
-export type SidePanel = null | "position" | "effects";
+export type SidePanel = null | "position" | "effects" | "edit-image";
 
 interface EditorUI {
   panel: SidePanel;

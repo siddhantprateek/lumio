@@ -82,13 +82,13 @@ input[type="range"] {
 /* The track is `-runnable-track`; `-slider-track` is not a real pseudo-element,
    which is why the line was invisible. */
 input[type="range"]::-webkit-slider-runnable-track {
-  background: var(--color-zinc-300, #d4d4d8);
+  background: var(--track, var(--color-zinc-300, #d4d4d8));
   border-radius: 9999px;
   height: 4px;
 }
 
 input[type="range"]::-moz-range-track {
-  background: var(--color-zinc-300, #d4d4d8);
+  background: var(--track, var(--color-zinc-300, #d4d4d8));
   border-radius: 9999px;
   height: 4px;
 }

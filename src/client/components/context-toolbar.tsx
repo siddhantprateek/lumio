@@ -23,6 +23,7 @@ import {
   Move,
   Sparkles,
   MoveHorizontal,
+  Wand2,
 } from "lucide-preact";
 import { useEditor } from "../context";
 import { FontPicker } from "./font-picker";
@@ -200,8 +201,13 @@ function ImageBar() {
     updateSelectedObject({ scaleX: scale, scaleY: scale, clipPath: undefined });
   };
 
+  const { panel, setPanel } = useEditorUI();
   return (
     <>
+      <Btn title="Edit image" on={panel === "edit-image"} onClick={() => setPanel(panel === "edit-image" ? null : "edit-image")}>
+        <Wand2 size={14} />Edit
+      </Btn>
+      <Sep />
       <Btn title="Replace image" onClick={() => file.current?.click()}><Replace size={14} />Replace</Btn>
       <input ref={file} type="file" accept="image/*" class="hidden" aria-label="Replacement image"
         onChange={(e) => {

@@ -26,6 +26,7 @@ import {
 import { useEditor } from "../context";
 import { useCanvasTick, useEditorUI } from "./editor-ui";
 import { TextEffects } from "./right-sidebar";
+import { ImageEditPanel } from "./image-edit-panel";
 import { alignToPage, isLocked, lockProps, type Alignment } from "../lib/object-actions";
 
 const tile =
@@ -228,31 +229,36 @@ function PositionPanel() {
   );
 }
 
+const TITLES = { position: "Position", effects: "Effects", "edit-image": "Edit image" } as const;
+
 /** The drawer that opens over the left of the canvas, like Canva's Position and Effects panels. */
 export function SidePanel() {
   const { canvas, selectedObject } = useEditor();
   const { panel, setPanel } = useEditorUI();
   useCanvasTick(canvas);
 
-  // Effects only apply to text; close it when the selection is not text.
+  // Effects only apply to text and Edit image to images; close them when the selection changes kind.
   const isText = selectedObject instanceof fabric.Textbox || selectedObject instanceof fabric.IText;
+  const isImage = selectedObject instanceof fabric.FabricImage;
   useEffect(() => {
-    if (panel === "effects" && !isText) setPanel(null);
-  }, [panel, isText]);
+    if ((panel === "effects" && !isText) || (panel === "edit-image" && !isImage)) setPanel(null);
+  }, [panel, isText, isImage]);
 
   if (!panel) return null;
   return (
-    <aside aria-label={panel === "position" ? "Position" : "Effects"}
+    <aside aria-label={TITLES[panel]}
       class="absolute left-3 top-3 bottom-3 w-72 z-20 bg-white border border-zinc-200 rounded-xl shadow-xl flex flex-col">
       <div class="flex items-center justify-between px-4 pt-3 pb-2">
-        <h2 class="text-sm font-semibold text-zinc-800 m-0">{panel === "position" ? "Position" : "Effects"}</h2>
+        <h2 class="text-sm font-semibold text-zinc-800 m-0">{TITLES[panel]}</h2>
         <button type="button" aria-label="Close panel" class="p-1 rounded bg-transparent border-none text-zinc-400 cursor-pointer hover:text-zinc-900 hover:bg-zinc-100"
           onClick={() => setPanel(null)}>
           <X size={16} />
         </button>
       </div>
       <div class="px-4 pb-4 overflow-y-auto flex-1">
-        {panel === "position" ? <PositionPanel /> : isText ? <div class="flex flex-col gap-4"><TextEffects /></div> : null}
+        {panel === "position" && <PositionPanel />}
+        {panel === "effects" && isText && <div class="flex flex-col gap-4"><TextEffects /></div>}
+        {panel === "edit-image" && isImage && <ImageEditPanel key={(selectedObject as fabric.FabricImage).getSrc()} />}
       </div>
     </aside>
   );
