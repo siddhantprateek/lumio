@@ -36,6 +36,11 @@ export interface EffectDef {
   params: ParamDef[];
   /** GLSL body. Has `uv`, `src`, `o` (output, starts as src), `p0..p11`, helpers. */
   glsl: string;
+  /**
+   * How far the effect reaches past the element's edge, as a fraction of its
+   * long side (blurs). Shapes and text get that much room in their cache.
+   */
+  spread?: (values: Record<string, number | string>) => number;
 }
 
 export interface EffectState {
@@ -78,6 +83,18 @@ const HEADER = `
   float fbm(vec2 p) { float v = 0.0; float a = 0.5; for (int i = 0; i < 5; i++) { v += a * vnoise(p); p *= 2.03; a *= 0.5; } return v; }
   vec2 rot(vec2 v, float a) { float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }
   // Disc blur with a golden-angle spiral; radius in long-side units.
+  // Same, with alpha, weighting colour by coverage so soft edges do not darken.
+  vec4 discBlur4(vec2 p, float radius) {
+    vec4 acc = vec4(0.0);
+    for (int i = 0; i < 48; i++) {
+      float fi = float(i);
+      float a = fi * 2.39996;
+      float rr = sqrt((fi + 0.5) / 48.0) * radius;
+      vec4 c = tex(p + vec2(cos(a), sin(a)) * rr * S);
+      acc += vec4(c.rgb * c.a, c.a);
+    }
+    return acc.a > 0.0 ? vec4(acc.rgb / acc.a, acc.a / 48.0) : vec4(0.0);
+  }
   vec3 discBlur(vec2 p, float radius) {
     vec3 acc = vec3(0.0);
     for (int i = 0; i < 40; i++) {
@@ -111,6 +128,49 @@ function program(body: string) {
 // Param order = p0, p1, … ; a colour takes three slots (r, g, b).
 
 export const EFFECTS: EffectDef[] = [
+  // Layer: made for shapes, text and graphics (work on photos too)
+  { id: "layer-blur", name: "Layer blur", category: "Layer", params: [
+      r("radius", "Blur", 0, 15, 3, 0.1, "%")],
+    spread: (v) => Number(v.radius) / 100,
+    glsl: `
+      o = discBlur4(uv, p0 / 100.0);` },
+  { id: "progressive-blur", name: "Progressive blur", category: "Layer", params: [
+      r("angle", "Direction", 0, 360, 90, 1, "°"), r("start", "Starts at", 0, 100, 30), r("end", "Full blur at", 0, 100, 100),
+      r("radius", "Max blur", 0, 15, 4, 0.1, "%")],
+    spread: (v) => Number(v.radius) / 100,
+    glsl: `
+      vec2 dir = vec2(cos(radians(p0)), sin(radians(p0)));
+      float t = dot(uv - 0.5, dir) / (abs(dir.x) * 0.5 + abs(dir.y) * 0.5) * 0.5 + 0.5;
+      float m = smoothstep(p1 / 100.0, max(p2, p1 + 1.0) / 100.0, t);
+      o = m > 0.001 ? discBlur4(uv, p3 / 100.0 * m) : src;` },
+  { id: "noise", name: "Noise", category: "Layer", params: [
+      r("amount", "Amount", 0, 100, 30), r("size", "Size", 1, 8, 1, 0.5, "px"),
+      sel("color", "Colour", 0, [["Mono", 0], ["Colour", 1]]), sel("blend", "Blend", 0, [["Add", 0], ["Overlay", 1]]), seed],
+    glsl: `
+      vec2 b = floor(uv * res / p1) + p4 * 13.0;
+      vec3 n = p2 > 0.5 ? vec3(hash(b), hash(b + 2.3), hash(b + 5.9)) : vec3(hash(b));
+      vec3 c = src.rgb;
+      vec3 ov = mix(2.0 * c * n, 1.0 - 2.0 * (1.0 - c) * (1.0 - n), step(0.5, c));
+      o.rgb = p3 < 0.5 ? c + (n - 0.5) * p0 / 100.0 * 0.6 : mix(c, ov, p0 / 100.0);` },
+  { id: "texture", name: "Texture", category: "Layer", params: [
+      sel("kind", "Texture", 0, [["Canvas", 0], ["Linen", 1], ["Concrete", 2], ["Crumpled paper", 3]]),
+      r("amount", "Strength", 0, 100, 50), r("scale", "Scale", 20, 300, 100), seed],
+    glsl: `
+      vec2 q = uv / S * 100.0 / p2;
+      float t;
+      if (p0 < 0.5) {
+        vec2 w = q * 90.0;
+        t = 0.5 + 0.25 * sin(w.x) * sin(w.y * 0.97) + (vnoise(w * 0.5) - 0.5) * 0.3;
+      } else if (p0 < 1.5) {
+        t = 0.5 + (vnoise(vec2(q.x * 260.0, q.y * 8.0) + p3) - 0.5) * 0.5 + (vnoise(vec2(q.x * 8.0, q.y * 260.0) + p3) - 0.5) * 0.5;
+      } else if (p0 < 2.5) {
+        t = fbm(q * 18.0 + p3) * 0.8 + hash(floor(q * 400.0)) * 0.25 - 0.05;
+      } else {
+        float f = fbm(q * 6.0 + p3);
+        t = 0.5 + (abs(f - 0.5) * 2.0 - 0.35) * 0.9 + (fbm(q * 30.0) - 0.5) * 0.2;
+      }
+      o.rgb = src.rgb * (1.0 + (t - 0.5) * p1 / 100.0 * 1.2);` },
+
   // Film & analog
   { id: "grain", name: "Film grain", category: "Film & analog", params: [
       r("amount", "Amount", 0, 100, 35), r("size", "Grain size", 1, 6, 1.6, 0.1, "px"), r("rough", "Roughness", 0, 100, 50),
@@ -648,6 +708,17 @@ export class LumioEffect extends fabric.filters.BaseFilter<"LumioEffect", { effe
 }
 
 fabric.classRegistry.setClass(LumioEffect);
+
+/** How far the enabled effects reach past an element's edge (fraction of its long side). */
+export function effectsSpread(effects: EffectState[] | undefined): number {
+  let total = 0;
+  for (const e of effects ?? []) {
+    if (e.enabled === false) continue;
+    const def = findEffect(e.id);
+    if (def?.spread) total += def.spread({ ...defaultValues(def), ...e.values });
+  }
+  return total;
+}
 
 export function effectFilters(effects: EffectState[] | undefined): fabric.filters.BaseFilter<string>[] {
   return (effects ?? [])

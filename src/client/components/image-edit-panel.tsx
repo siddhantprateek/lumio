@@ -21,6 +21,7 @@ import {
 } from "../lib/image-filters";
 import { defaultValues, findEffect, type EffectState } from "../lib/effects";
 import { EffectDetail, EffectsGallery, EffectsSection } from "./effects-panel";
+import { backdropBlurOf } from "../lib/element-effects";
 
 type View = "main" | "filters" | "adjust" | "effects" | "effect";
 
@@ -96,6 +97,7 @@ export function ImageEditPanel() {
   const { canvas, selectedObject, updateSelectedObject, removeBackground, removeTextBehind, cutoutBusy } = useEditor();
   const img = selectedObject as fabric.FabricObject;
   const isPhoto = img instanceof fabric.FabricImage && !(img as { _isBgImage?: boolean })._isBgImage;
+  const isShape = !(img instanceof fabric.FabricImage) && !(img instanceof fabric.IText) && !(img instanceof fabric.Textbox);
   const [view, setView] = useState<View>("main");
   const thumbs = useLookThumbnails(img, true);
   const current = lookOf(img);
@@ -316,6 +318,33 @@ export function ImageEditPanel() {
         onOpen={(i) => { setFxIndex(i); setView("effect"); }}
         onToggle={(i) => setEffects(effects.map((e, j) => (j === i ? { ...e, enabled: e.enabled === false } : e)))}
         onRemove={(i) => setEffects(effects.filter((_, j) => j !== i))} />
+
+      {isShape && (
+        <section>
+          <h3 class="text-xs font-semibold text-zinc-700 mb-2 m-0">Background blur &amp; glass</h3>
+          <Slider label="Background blur" min={0} max={60} value={Math.round(backdropBlurOf(img))}
+            onChange={(v) => updateSelectedObject({ lumioBackdrop: v > 0 ? v : undefined })} />
+          <p class="text-[10px] text-zinc-400 mt-1 mb-2">Blurs whatever is behind this shape. Use a see-through fill to show it.</p>
+          <button type="button"
+            class="w-full h-9 rounded-md border border-zinc-300 bg-transparent text-xs text-zinc-700 cursor-pointer hover:bg-zinc-100"
+            onClick={() => {
+              updateSelectedObject({
+                lumioBackdrop: 16,
+                fill: "rgba(255,255,255,0.16)",
+                stroke: "rgba(255,255,255,0.6)",
+                strokeWidth: 1.5,
+                strokeUniform: true,
+                shadow: new fabric.Shadow({ color: "rgba(0,0,0,0.25)", blur: 30, offsetX: 0, offsetY: 12 }),
+              });
+              if (!effects.some((e) => e.id === "noise")) {
+                const def = findEffect("noise");
+                if (def) setEffects([...effects, { id: "noise", values: { ...defaultValues(def), amount: 10 } }]);
+              }
+            }}>
+            Make it glass
+          </button>
+        </section>
+      )}
 
       <section>
         <h3 class="text-xs font-semibold text-zinc-700 mb-2 m-0">Shadows</h3>

@@ -24,6 +24,7 @@ import {
   Sparkles,
   MoveHorizontal,
   Wand2,
+  Hexagon,
   Crop,
   ImageOff,
   Check,
@@ -37,6 +38,7 @@ import { FillEditor, BrandSwatches } from "./right-sidebar";
 import { GradientControls } from "./gradient-controls";
 import { findBackdropShape, findBgImage, isBgImage } from "../lib/background";
 import { buildObjectGradient } from "../lib/gradient";
+import { isEditablePolygon, polygonSpecOf, reshapePolygon, type PolygonSpec } from "../lib/polygon";
 import { Popover, useCanvasTick, useEditorUI } from "./editor-ui";
 import { hasTextBehind } from "../lib/text-behind";
 import { specToCss, gradientToSpec, type GradientSpec } from "../lib/gradient";
@@ -315,6 +317,36 @@ function TextBar() {
   );
 }
 
+/** Sides, star and corner rounding for polygon elements, applied live. */
+function PolygonControls() {
+  const { canvas, selectedObject, updateSelectedObject } = useEditor();
+  if (!isEditablePolygon(selectedObject)) return null;
+  const spec = polygonSpecOf(selectedObject);
+  const set = (patch: Partial<PolygonSpec>) => {
+    reshapePolygon(selectedObject, { ...spec, ...patch });
+    canvas?.requestRenderAll();
+    updateSelectedObject({});
+  };
+  return (
+    <Popover width="w-60" trigger={(open, toggle) => (
+      <Btn title="Sides and corners" on={open} onClick={toggle}><Hexagon size={15} />{spec.sides} sides</Btn>
+    )}>
+      <div class="flex flex-col gap-3">
+        <Range label={spec.star ? "Points" : "Sides"} min={3} max={20} value={spec.sides} onChange={(sides) => set({ sides: Math.round(sides) })} />
+        <label class="flex items-center justify-between text-xs text-zinc-600 cursor-pointer">
+          Star
+          <input type="checkbox" class="accent-accent cursor-pointer" checked={spec.star > 0}
+            onChange={(e) => set({ star: (e.target as HTMLInputElement).checked ? 45 : 0 })} />
+        </label>
+        {spec.star > 0 && (
+          <Range label="Star depth" unit="%" min={10} max={90} value={spec.star} onChange={(star) => set({ star: Math.round(star) })} />
+        )}
+        <Range label="Corner rounding" min={0} max={100} value={spec.round} onChange={(round) => set({ round: Math.round(round) })} />
+      </div>
+    </Popover>
+  );
+}
+
 function ShapeBar() {
   const { selectedObject } = useEditor();
   const { panel, setPanel } = useEditorUI();
@@ -329,6 +361,7 @@ function ShapeBar() {
           <Sep />
         </>
       )}
+      <PolygonControls />
       <FillSwatch label="Colour" solidDefault="#6366f1" />
       <BorderControls rounding={selectedObject instanceof fabric.Rect} />
       <Transparency />

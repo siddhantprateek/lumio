@@ -1,7 +1,7 @@
 import * as fabric from "fabric";
 import { LumioTone } from "./tone-filter";
 import { LumioPop, pop, popPixel, type PopProps } from "./pop-filter";
-import { effectFilters, type EffectState } from "./effects";
+import { effectFilters, effectsSpread, type EffectState } from "./effects";
 import { elementSnapshot, setElementFilters } from "./element-effects";
 
 /*
@@ -400,7 +400,7 @@ export function applyEdits(
       target.filters = buildFilters(state, adjust, effects);
       target.applyFilters();
     } else {
-      setElementFilters(target, buildFilters(state, adjust, effects));
+      setElementFilters(target, buildFilters(state, adjust, effects), effectsSpread(effects));
     }
   }
 }
@@ -410,7 +410,7 @@ export function restoreElementEdits(obj: fabric.FabricObject) {
   if (obj instanceof fabric.FabricImage) return; // images restore their own filters
   const e = obj as Edited;
   if (!e.lumioLook && !e.lumioAdjust && !e.lumioEffects?.length) return;
-  setElementFilters(obj, buildFilters(e.lumioLook, adjustOf(obj), effectsOf(obj)));
+  setElementFilters(obj, buildFilters(e.lumioLook, adjustOf(obj), effectsOf(obj)), effectsSpread(effectsOf(obj)));
 }
 
 // ── Thumbnails ─────────────────────────────────────────────────────────

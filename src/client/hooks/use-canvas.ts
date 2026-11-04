@@ -9,6 +9,8 @@ import { installTextBehind, linkCutout, syncCutout, unlinkCutout } from "../lib/
 import { ensureCanvasFonts } from "../lib/google-fonts";
 import { cancelCrop, isCropping, serializeCanvas } from "../lib/crop";
 import { bakeBackground, findBackdropShape, findBgImage, placeBackgroundImage } from "../lib/background";
+import { makePolygon } from "../lib/polygon";
+import { findShape, makeShape } from "../lib/shapes";
 import { downloadDataURL, exportPagesToPDF, renderPageToPNG, slugify } from "../lib/export";
 
 const MAX_HISTORY = 50;
@@ -169,7 +171,9 @@ export function useCanvasState(onChange: () => void = () => {}) {
 
     activeCanvasIdRef.current = pageId;
     setActiveCanvasId(pageId);
-    setSelectedObject(null);
+    // Clicking an element on another page selects it before the page becomes
+    // active, so adopt whatever that page already has selected.
+    setSelectedObject(canvasMapRef.current.get(pageId)?.getActiveObject() ?? null);
     updateUndoRedoState(pageId);
   }, [updateUndoRedoState]);
 
@@ -204,7 +208,7 @@ export function useCanvasState(onChange: () => void = () => {}) {
   // ── Shapes ──────────────────────────────────────────────────────────
 
   const addShape = useCallback(
-    (type: "rect" | "circle" | "line" | "triangle") => {
+    (type: "rect" | "circle" | "line" | "triangle" | "polygon" | "star" | "path", sides?: number, shapeId?: string) => {
       const canvas = getActiveCanvas();
       if (!canvas) return;
       let obj: fabric.FabricObject;
@@ -240,6 +244,18 @@ export function useCanvasState(onChange: () => void = () => {}) {
             ...SHAPE_DEFAULTS,
           });
           break;
+        case "polygon":
+          obj = makePolygon({ sides: sides ?? 6, star: 0, round: 0 }, { x: cx, y: cy }, 75, { ...SHAPE_DEFAULTS });
+          break;
+        case "star":
+          obj = makePolygon({ sides: sides ?? 5, star: 45, round: 0 }, { x: cx, y: cy }, 80, { ...SHAPE_DEFAULTS });
+          break;
+        case "path": {
+          const def = shapeId ? findShape(shapeId) : undefined;
+          if (!def) return;
+          obj = makeShape(def, { x: cx, y: cy }, 180, SHAPE_DEFAULTS.fill);
+          break;
+        }
         case "line":
           obj = new fabric.Line([cx - 100, cy, cx + 100, cy], {
             stroke: "#6366f1",

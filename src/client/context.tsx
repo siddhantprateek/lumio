@@ -51,7 +51,7 @@ export interface EditorContextValue {
 
   // Canvas actions
   addText: (preset: "heading" | "subheading" | "body") => void;
-  addShape: (type: "rect" | "circle" | "line" | "triangle") => void;
+  addShape: (type: "rect" | "circle" | "line" | "triangle" | "polygon" | "star" | "path", sides?: number, shapeId?: string) => void;
   addImage: (url: string, at?: { x: number; y: number }) => Promise<void>;
   setBackground: (type: "color" | "gradient" | "image", value: string) => void;
   editBackground: () => Promise<fabric.FabricObject | null>;

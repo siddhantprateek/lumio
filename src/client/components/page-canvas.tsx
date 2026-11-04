@@ -166,7 +166,9 @@ export function PageCanvas({ page, isActive, width, height, onActivate }: PageCa
     }
 
     // On mouse down, activate this canvas (use ref to avoid stale closure)
-    c.on("mouse:down", () => onActivateRef.current());
+    // Activate before Fabric handles the click, so the selection it makes is
+    // reported for the active page (otherwise the toolbar would miss it).
+    c.on("mouse:down:before", () => onActivateRef.current());
 
     // Right-click: select what is under the pointer and open the element menu.
     // `fireRightClick` makes Fabric resolve the target for us; `stopContextMenu`

@@ -11,6 +11,6 @@ installElementEffects();
 // Fabric v6 drops unknown properties on serialize, and `canvas.toJSON()` takes
 // no argument list any more. Registering `fieldName` here is what makes it
 // survive every save and reload, without touching the toJSON call sites.
-fabric.FabricObject.customProperties = ["fieldName", "isCutout", "altText", "subjectId", "cutoutOf", "lumioLook", "lumioAdjust", "lumioEffects", "_isBgImage"];
+fabric.FabricObject.customProperties = ["fieldName", "isCutout", "altText", "subjectId", "cutoutOf", "lumioLook", "lumioAdjust", "lumioEffects", "_isBgImage", "lumioSides", "lumioStar", "lumioRound", "lumioRadius", "lumioBackdrop"];
 
 render(<App />, document.getElementById("app")!);

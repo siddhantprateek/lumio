@@ -5,6 +5,10 @@ import {
   Circle,
   Triangle,
   Minus,
+  Hexagon,
+  Star,
+  Pentagon,
+  Octagon,
   Image,
   Upload,
   Palette,
@@ -13,6 +17,7 @@ import {
   SwatchBook,
 } from "lucide-preact";
 import { useEditor } from "../context";
+import { SHAPES } from "../lib/shapes";
 import { TemplateCard } from "./template-card";
 import { DesignList } from "./design-list";
 import { BrandKitPanel } from "./brand-kit-panel";
@@ -220,6 +225,8 @@ export function LeftSidebar() {
                         { type: "circle" as const, icon: Circle, label: "Circle" },
                         { type: "triangle" as const, icon: Triangle, label: "Triangle" },
                         { type: "line" as const, icon: Minus, label: "Line" },
+                        { type: "polygon" as const, icon: Hexagon, label: "Polygon" },
+                        { type: "star" as const, icon: Star, label: "Star" },
                       ].map((s) => (
                         <button
                           key={s.type}
@@ -231,6 +238,44 @@ export function LeftSidebar() {
                         </button>
                       ))}
                     </div>
+                    <p class="text-zinc-400 text-[11px] mt-4 mb-2">Polygons — pick the number of sides</p>
+                    <div class="grid grid-cols-5 gap-1.5">
+                      {[3, 4, 5, 6, 7, 8, 9, 10, 12, 16].map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          title={`${n}-sided polygon`}
+                          class="flex flex-col items-center gap-0.5 py-2 rounded-md bg-white border border-zinc-200 cursor-pointer text-zinc-500 hover:border-accent hover:text-accent"
+                          onClick={() => addShape("polygon", n)}
+                        >
+                          {n === 5 ? <Pentagon size={16} /> : n === 8 ? <Octagon size={16} /> : <Hexagon size={16} />}
+                          <span class="text-[10px]">{n}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <p class="text-zinc-400 text-[10px] mt-2 mb-0">Select a polygon to change its sides, make it a star or round its corners.</p>
+                    {(["Arrows", "Basic", "Symbols"] as const).map((group) => (
+                      <div key={group}>
+                        <p class="text-zinc-400 text-[11px] mt-4 mb-2">{group}</p>
+                        <div class="grid grid-cols-4 gap-1.5">
+                          {SHAPES.filter((sh) => sh.group === group).map((sh) => (
+                            <button
+                              key={sh.id}
+                              type="button"
+                              title={sh.label}
+                              aria-label={`Add ${sh.label.toLowerCase()}`}
+                              class="aspect-square flex items-center justify-center rounded-md bg-white border border-zinc-200 cursor-pointer text-zinc-500 hover:border-accent hover:text-accent"
+                              onClick={() => addShape("path", undefined, sh.id)}
+                            >
+                              <svg viewBox="-6 -6 112 112" width="30" height="30" aria-hidden="true">
+                                <path d={sh.d} fill={sh.line ? "none" : "currentColor"} stroke={sh.line ? "currentColor" : "none"}
+                                  stroke-width={sh.line ? 8 : 0} stroke-linecap="round" stroke-linejoin="round" fill-rule={sh.evenOdd ? "evenodd" : "nonzero"} />
+                              </svg>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
 
