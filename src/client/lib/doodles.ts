@@ -154,47 +154,145 @@ function loopLine(seed: number, w = 420, h = 160) {
   return smooth(pts);
 }
 
+// ── Brush engine: tapered, hand-drawn strokes ──────────────────────────
+
+type Cubic = [P, P, P, P];
+
+function cubicAt([a, b, c, d]: Cubic, t: number): P {
+  const u = 1 - t;
+  return [
+    u * u * u * a[0] + 3 * u * u * t * b[0] + 3 * u * t * t * c[0] + t * t * t * d[0],
+    u * u * u * a[1] + 3 * u * u * t * b[1] + 3 * u * t * t * c[1] + t * t * t * d[1],
+  ];
+}
+
+/** Dense, evenly spaced points along a chain of cubic curves. */
+function sampleCurves(curves: Cubic[], perCurve = 60): P[] {
+  const raw: P[] = [];
+  curves.forEach((c, i) => {
+    for (let s = i === 0 ? 0 : 1; s <= perCurve; s++) raw.push(cubicAt(c, s / perCurve));
+  });
+  // Re-space evenly so the taper and wobble are even along the length.
+  const out: P[] = [raw[0]];
+  const step = 2.2;
+  let carry = 0;
+  for (let i = 1; i < raw.length; i++) {
+    const [x0, y0] = raw[i - 1], [x1, y1] = raw[i];
+    let seg = Math.hypot(x1 - x0, y1 - y0);
+    let t = 0;
+    while (carry + seg >= step) {
+      const need = step - carry;
+      t += need / Math.hypot(x1 - x0, y1 - y0);
+      out.push([x0 + (x1 - x0) * t, y0 + (y1 - y0) * t]);
+      seg -= need;
+      carry = 0;
+    }
+    carry += seg;
+  }
+  out.push(raw[raw.length - 1]);
+  return out;
+}
+
+const smoothstep = (a: number, b: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * A filled, tapered stroke along `pts`, like a pen or brush: thin start,
+ * full body, easing off near the end, round caps, and a gentle hand wobble.
+ */
+function brushStrokePath(pts: P[], width: number, seed: number, opts: { taperStart?: number; taperEnd?: number; wobble?: number } = {}) {
+  const n = noise1(seed);
+  const ts = opts.taperStart ?? 0.25, te = opts.taperEnd ?? 0.25, wob = opts.wobble ?? 1.2;
+  const left: P[] = [], right: P[] = [];
+  const count = pts.length;
+  for (let i = 0; i < count; i++) {
+    const p = pts[i];
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(count - 1, i + 1)];
+    let dx = b[0] - a[0], dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len; dy /= len;
+    const t = i / (count - 1);
+    const w = width * (0.35 + 0.65 * smoothstep(0, ts, t)) * (1 - 0.55 * smoothstep(1 - te, 1, t)) * (1 + n(i / 18) * 0.12);
+    const off = n(i / 40 + 20) * wob; // drift of the hand
+    const cx = p[0] - dy * off, cy = p[1] + dx * off;
+    left.push([cx - dy * w / 2, cy + dx * w / 2]);
+    right.push([cx + dy * w / 2, cy - dx * w / 2]);
+  }
+  // Round caps: half circles at both ends.
+  const cap = (center: P, from: P, to: P, steps = 8): P[] => {
+    const r = Math.hypot(to[0] - from[0], to[1] - from[1]) / 2;
+    const a0 = Math.atan2(from[1] - center[1], from[0] - center[0]);
+    const out: P[] = [];
+    for (let k = 1; k < steps; k++) {
+      const a = a0 - (Math.PI * k) / steps;
+      out.push([center[0] + Math.cos(a) * r, center[1] + Math.sin(a) * r]);
+    }
+    return out;
+  };
+  const endC: P = [(left[count - 1][0] + right[count - 1][0]) / 2, (left[count - 1][1] + right[count - 1][1]) / 2];
+  const startC: P = [(left[0][0] + right[0][0]) / 2, (left[0][1] + right[0][1]) / 2];
+  const ring: P[] = [
+    ...left,
+    ...cap(endC, left[count - 1], right[count - 1]),
+    ...right.reverse(),
+    ...cap(startC, right[count - 1], left[0]),
+  ];
+  return `M${ring.map(([x, y]) => `${f(x)} ${f(y)}`).join(" L")} Z`;
+}
+
+/** Two tapered barbs at the end of `pts`, aimed along the stroke's final direction. */
+function arrowHead(pts: P[], size: number, width: number, seed: number, spread = 0.52) {
+  const tip = pts[pts.length - 1];
+  const back = pts[Math.max(0, pts.length - 12)];
+  const ang = Math.atan2(tip[1] - back[1], tip[0] - back[0]);
+  const barb = (side: number, s: number) => {
+    const a = ang + Math.PI + side * spread;
+    const end: P = [tip[0] + Math.cos(a) * size, tip[1] + Math.sin(a) * size];
+    // A slight curve, like a quick flick of the pen.
+    const mid: P = [(tip[0] + end[0]) / 2 + Math.cos(a + side * 1.57) * size * 0.08, (tip[1] + end[1]) / 2 + Math.sin(a + side * 1.57) * size * 0.08];
+    const line = sampleCurves([[end, mid, mid, tip]], 30);
+    return brushStrokePath(line, width, s, { taperStart: 0.5, taperEnd: 0.05, wobble: 0.4 });
+  };
+  return `${barb(1, seed)} ${barb(-1, seed + 1)}`;
+}
+
+/** A complete hand-drawn arrow from a chain of curves. */
+function brushArrow(curves: Cubic[], seed: number, width = 9, head = 30) {
+  const pts = sampleCurves(curves);
+  return brushStrokePath(pts, width, seed, { taperEnd: 0.12 }) + " " + arrowHead(pts, head, width * 0.95, seed + 5);
+}
+
 // ── Arrows ─────────────────────────────────────────────────────────────
 
-function head(tip: P, from: P, size = 22, spread = 0.5): string {
-  const ang = Math.atan2(tip[1] - from[1], tip[0] - from[0]);
-  const a1: P = [tip[0] - Math.cos(ang - spread) * size, tip[1] - Math.sin(ang - spread) * size];
-  const a2: P = [tip[0] - Math.cos(ang + spread) * size, tip[1] - Math.sin(ang + spread) * size];
-  return ` M${f(a1[0])} ${f(a1[1])} L${f(tip[0])} ${f(tip[1])} L${f(a2[0])} ${f(a2[1])}`;
-}
 
-function curvyArrow(seed: number) {
-  const pts = wobble([[20, 170], [80, 60], [170, 40], [260, 90]], 4, seed, 8);
-  return smooth(pts) + head(pts[pts.length - 1], pts[pts.length - 4]);
-}
-
-function loopArrow(seed: number) {
+/** A spiral opening outwards, as cubic segments. */
+function spiralCurves(): Cubic[] {
   const pts: P[] = [];
-  for (let i = 0; i <= 90; i++) {
-    const t = i / 90;
-    const x = 20 + t * 240 + Math.sin(t * Math.PI * 2) * 40;
-    const y = 140 - t * 90 - Math.cos(t * Math.PI * 2) * 40 + 40;
-    pts.push([x, y]);
+  for (let i = 0; i <= 64; i++) {
+    const t = (i / 64) * Math.PI * 3.1 + Math.PI;
+    const r = 10 + (i / 64) * 95;
+    pts.push([130 + Math.cos(t) * r, 120 + Math.sin(t) * r * 0.85]);
   }
-  const w = wobble(pts, 1.5, seed, 1);
-  return smooth(w) + head(w[w.length - 1], w[w.length - 6]);
+  const curves: Cubic[] = [];
+  for (let i = 0; i + 3 < pts.length; i += 3) curves.push([pts[i], pts[i + 1], pts[i + 2], pts[i + 3]]);
+  return curves;
 }
 
-function spiralArrow(seed: number) {
-  const pts: P[] = [];
-  for (let i = 0; i <= 120; i++) {
-    const t = (i / 120) * Math.PI * 3.2;
-    const r = 12 + t * 13;
-    pts.push([150 + Math.cos(t) * r, 120 + Math.sin(t) * r * 0.8]);
-  }
-  const w = wobble(pts, 1.5, seed, 1);
-  return smooth(w) + head(w[w.length - 1], w[w.length - 6]);
+/** Three quarters of a circle, ending with an arrow, as cubic segments. */
+function circleCurves(cx: number, cy: number, r: number): Cubic[] {
+  const k = 0.5523 * r; // cubic approximation of a quarter circle
+  return [
+    [[cx - r, cy], [cx - r, cy - k], [cx - k, cy - r], [cx, cy - r]],
+    [[cx, cy - r], [cx + k, cy - r], [cx + r, cy - k], [cx + r, cy]],
+    [[cx + r, cy], [cx + r, cy + k], [cx + k, cy + r], [cx, cy + r]],
+  ];
 }
 
-function bentArrow(seed: number) {
-  const pts = wobble([[30, 40], [40, 150], [250, 160]], 4, seed, 10);
-  return smooth(pts) + head(pts[pts.length - 1], pts[pts.length - 5]);
-}
+
+
+
 
 // ── Sparkles & bursts ──────────────────────────────────────────────────
 
@@ -319,10 +417,14 @@ export const DOODLES: Doodle[] = [
   { id: "underline", label: "Double underline", group: "Scribbles & lines", svg: svg(420, 50, strokePath(underlineDouble(8), INK, 5)) },
   { id: "loops", label: "Loops", group: "Scribbles & lines", svg: svg(420, 160, strokePath(loopLine(6), INK, 4)) },
 
-  { id: "curvy-arrow", label: "Curvy arrow", group: "Arrows", svg: svg(280, 200, strokePath(curvyArrow(3), INK, 5)) },
-  { id: "loop-arrow", label: "Loop arrow", group: "Arrows", svg: svg(300, 200, strokePath(loopArrow(5), INK, 5)) },
-  { id: "spiral-arrow", label: "Spiral arrow", group: "Arrows", svg: svg(300, 240, strokePath(spiralArrow(9), INK, 4)) },
-  { id: "bent-arrow", label: "Bent arrow", group: "Arrows", svg: svg(280, 200, strokePath(bentArrow(12), INK, 5)) },
+  { id: "swoosh-arrow", label: "Swoosh arrow", group: "Arrows", svg: svg(300, 200, fillPath(brushArrow([[[24, 170], [70, 60], [180, 30], [270, 70]]], 3), INK)) },
+  { id: "s-arrow", label: "S-curve arrow", group: "Arrows", svg: svg(300, 200, fillPath(brushArrow([[[20, 150], [90, 150], [110, 60], [160, 60]], [[160, 60], [210, 60], [220, 150], [280, 120]]], 8), INK)) },
+  { id: "loop-arrow", label: "Loop arrow", group: "Arrows", svg: svg(320, 200, fillPath(brushArrow([[[20, 150], [90, 150], [160, 120], [170, 80]], [[170, 80], [180, 30], [110, 30], [125, 85]], [[125, 85], [140, 140], [230, 150], [295, 95]]], 5), INK)) },
+  { id: "spiral-arrow", label: "Spiral arrow", group: "Arrows", svg: svg(260, 240, fillPath(brushArrow(spiralCurves(), 9, 7.5, 26), INK)) },
+  { id: "hook-arrow", label: "Hook arrow", group: "Arrows", svg: svg(260, 220, fillPath(brushArrow([[[40, 30], [230, 20], [250, 170], [110, 180]]], 12), INK)) },
+  { id: "circle-arrow", label: "Circle arrow", group: "Arrows", svg: svg(240, 240, fillPath(brushArrow(circleCurves(120, 120, 88), 14, 9, 28), INK)) },
+  { id: "squiggle-arrow", label: "Squiggle arrow", group: "Arrows", svg: svg(340, 140, fillPath(brushArrow([[[16, 80], [50, 20], [80, 140], [115, 80]], [[115, 80], [150, 20], [180, 140], [215, 80]], [[215, 80], [245, 30], [280, 70], [320, 70]]], 21), INK)) },
+  { id: "drop-arrow", label: "Down arrow", group: "Arrows", svg: svg(200, 260, fillPath(brushArrow([[[60, 20], [160, 60], [40, 140], [110, 235]]], 31), INK)) },
 
   { id: "sparkle", label: "Sparkle", group: "Sparkles & bursts", svg: svg(200, 200, fillPath(sparkle(100, 100, 90), INK)) },
   { id: "sparkles", label: "Sparkles", group: "Sparkles & bursts", svg: svg(220, 200, fillPath(sparkle(80, 110, 70) + sparkle(170, 50, 36) + sparkle(178, 160, 22), "#facc15")) },
