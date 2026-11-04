@@ -1,9 +1,24 @@
 import { ensureCanvasFonts } from "../lib/google-fonts";
 import { OPEN_CONTEXT_MENU, type ContextMenuDetail } from "./object-context-menu";
-import { useRef, useEffect } from "preact/hooks";
+import { IMPORT_EVENT, readDataTransfer, type ImportDetail } from "../lib/clipboard-import";
+import { useRef, useEffect, useState } from "preact/hooks";
 import * as fabric from "fabric";
 import { useEditor } from "../context";
 import type { Page } from "../types";
+
+/** True for the lowest element when it is a shape or image covering (almost) the whole page. */
+function isBackdrop(canvas: fabric.Canvas, obj: fabric.FabricObject, width: number, height: number) {
+  if (canvas.getObjects()[0] !== obj) return false;
+  if (obj instanceof fabric.Textbox || obj instanceof fabric.IText) return false;
+  obj.setCoords();
+  const pts = Object.values(obj.aCoords);
+  const minX = Math.min(...pts.map((p) => p.x));
+  const maxX = Math.max(...pts.map((p) => p.x));
+  const minY = Math.min(...pts.map((p) => p.y));
+  const maxY = Math.max(...pts.map((p) => p.y));
+  const slack = 4;
+  return minX <= slack && minY <= slack && maxX >= width - slack && maxY >= height - slack;
+}
 
 interface PageCanvasProps {
   page: Page;
@@ -19,6 +34,9 @@ export function PageCanvas({ page, isActive, width, height, onActivate }: PageCa
   const fabricRef = useRef<fabric.Canvas | null>(null);
   const onActivateRef = useRef(onActivate);
   onActivateRef.current = onActivate;
+  // Read by listeners registered once at mount, so they see the current size after a resize.
+  const sizeRef = useRef({ width, height });
+  sizeRef.current = { width, height };
 
   useEffect(() => {
     if (!canvasElRef.current || fabricRef.current) return;
@@ -155,12 +173,16 @@ export function PageCanvas({ page, isActive, width, height, onActivate }: PageCa
     c.on("mouse:down", (opt) => {
       const e = opt.e as MouseEvent;
       if (e.button !== 2) return;
-      const target = opt.target ?? null;
+      const hit = opt.target ?? null;
+      // A bottom-layer shape filling the whole page is the page's backdrop
+      // (templates draw their background that way): show the page menu.
+      const backdrop = hit && isBackdrop(c, hit, sizeRef.current.width, sizeRef.current.height) ? hit : null;
+      const target = backdrop ? null : hit;
       if (target && c.getActiveObject() !== target) c.setActiveObject(target);
       if (!target) c.discardActiveObject();
       c.requestRenderAll();
       window.dispatchEvent(new CustomEvent<ContextMenuDetail>(OPEN_CONTEXT_MENU, {
-        detail: { x: e.clientX, y: e.clientY, canvas: c, target },
+        detail: { x: e.clientX, y: e.clientY, canvas: c, target, backdrop },
       }));
     });
 
@@ -174,10 +196,41 @@ export function PageCanvas({ page, isActive, width, height, onActivate }: PageCa
     };
   }, []);
 
+  // Drop images, image links or text from the desktop or another tab.
+  const [dropping, setDropping] = useState(false);
+  const accepts = (dt: DataTransfer | null) =>
+    !!dt && Array.from(dt.types).some((t) => t === "Files" || t === "text/uri-list" || t === "text/html" || t === "text/plain");
+
   return (
     <div
-      class={`shadow-lg rounded-lg overflow-hidden ${isActive ? "ring-2 ring-[#6366f1]" : ""}`}
+      class={`shadow-lg rounded-lg overflow-hidden ${isActive ? "ring-2 ring-[#6366f1]" : ""} ${dropping ? "outline outline-4 outline-[#6366f1] outline-offset-4" : ""}`}
       style={{ width, height }}
+      onDragOver={(e) => {
+        if (!accepts(e.dataTransfer)) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+        if (!dropping) setDropping(true);
+      }}
+      onDragLeave={(e) => {
+        if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) setDropping(false);
+      }}
+      onDrop={(e) => {
+        setDropping(false);
+        const item = readDataTransfer(e.dataTransfer);
+        if (!item || item.kind === "element") return;
+        e.preventDefault();
+        onActivateRef.current();
+        // Client pixels → page units (the page is CSS-scaled by the zoom).
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const at = {
+          x: ((e.clientX - rect.left) / rect.width) * width,
+          y: ((e.clientY - rect.top) / rect.height) * height,
+        };
+        // Let the page become active before the bridge places the item on it.
+        requestAnimationFrame(() =>
+          window.dispatchEvent(new CustomEvent<ImportDetail>(IMPORT_EVENT, { detail: { item, at, canvas: fabricRef.current ?? undefined } })),
+        );
+      }}
     >
       <canvas ref={canvasElRef} />
     </div>

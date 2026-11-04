@@ -8,6 +8,7 @@ import { ContextToolbar } from "./context-toolbar";
 import { SelectionToolbar } from "./selection-toolbar";
 import { SidePanel } from "./side-panel";
 import { EditorUIProvider } from "./editor-ui";
+import { ClipboardBridge } from "./clipboard-bridge";
 
 export function Editor() {
   return (
@@ -28,6 +29,7 @@ export function Editor() {
         </div>
         <SelectionToolbar />
         <ObjectContextMenu />
+        <ClipboardBridge />
       </div>
     </EditorUIProvider>
   );

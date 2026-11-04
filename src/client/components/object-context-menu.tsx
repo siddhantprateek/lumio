@@ -26,6 +26,11 @@ import {
   MoveUp,
   MoveDown,
   SendToBack,
+  FilePlus2,
+  Shapes,
+  Files,
+  BoxSelect,
+  Download,
 } from "lucide-preact";
 import { useEditor } from "../context";
 import { downloadDataURL } from "../lib/export";
@@ -43,6 +48,7 @@ import {
   type Alignment,
 } from "../lib/object-actions";
 import { hasTextBehind } from "../lib/text-behind";
+import { IMPORT_EVENT, markElementCopied, readSystemClipboard, type ImportDetail } from "../lib/clipboard-import";
 
 export const OPEN_CONTEXT_MENU = "lumio:contextmenu";
 
@@ -51,6 +57,8 @@ export interface ContextMenuDetail {
   y: number;
   canvas: fabric.Canvas;
   target: fabric.FabricObject | null;
+  /** The page-filling bottom shape under the pointer, when that is what was right-clicked. */
+  backdrop?: fabric.FabricObject | null;
 }
 
 type Panel = null | "alt" | "info";
@@ -128,12 +136,24 @@ function Row({ icon, label, hint, disabled, onClick, children }: {
 
 const Divider = () => <div class="my-1 border-t border-zinc-200" />;
 
+/** Selects every element that can be selected (cut-outs and the background image cannot). */
+function selectAll(canvas: fabric.Canvas) {
+  const objects = canvas.getObjects().filter((o) => o.selectable && o.evented !== false && o.visible !== false);
+  if (objects.length === 0) return;
+  canvas.discardActiveObject();
+  canvas.setActiveObject(objects.length === 1 ? objects[0] : new fabric.ActiveSelection(objects, { canvas }));
+  canvas.requestRenderAll();
+}
+
 /**
  * Right-click menu for canvas objects: clipboard, layer order, alignment,
  * lock, alt text and image tools. Also owns the clipboard shortcuts.
  */
 export function ObjectContextMenu() {
-  const { removeBackground, removeTextBehind, cutoutBusy, setBackground, canvasWidth, canvasHeight, updateSelectedObject } = useEditor();
+  const {
+    removeBackground, removeTextBehind, cutoutBusy, setBackground, canvasWidth, canvasHeight, updateSelectedObject,
+    addPage, duplicatePage, deletePage, activePageId, pages, exportPNG, activeDesign,
+  } = useEditor();
   const [menu, setMenu] = useState<ContextMenuDetail | null>(null);
   const [panel, setPanel] = useState<Panel>(null);
   const [altDraft, setAltDraft] = useState("");
@@ -187,6 +207,12 @@ export function ObjectContextMenu() {
 
   // Shortcuts act on the active canvas's selection.
   const { canvas: activeCanvas } = useEditor();
+  const activePageIdRef = useRef(activePageId);
+  activePageIdRef.current = activePageId;
+  const addPageRef = useRef(addPage as (after?: string) => Promise<void>);
+  addPageRef.current = addPage as (after?: string) => Promise<void>;
+  const duplicatePageRef = useRef(duplicatePage);
+  duplicatePageRef.current = duplicatePage;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
@@ -196,11 +222,16 @@ export function ObjectContextMenu() {
       const obj = canvas.getActiveObject();
       if (obj && (obj as fabric.Textbox).isEditing) return;
       const mod = e.ctrlKey || e.metaKey;
+      // Plain Ctrl+V is left alone on purpose: the browser then fires a
+      // `paste` event carrying the system clipboard, which ClipboardBridge
+      // reads (images and text from other apps, or a Lumio element).
       if (mod && e.altKey && e.code === "KeyC" && obj) { e.preventDefault(); copyStyle(obj); }
       else if (mod && e.altKey && e.code === "KeyV" && obj) { e.preventDefault(); if (pasteStyle(obj)) commit(canvas, obj); }
-      else if (mod && !e.altKey && e.code === "KeyC" && obj) { e.preventDefault(); void copyObject(obj); }
-      else if (mod && !e.altKey && e.code === "KeyV" && hasClipboard()) { e.preventDefault(); void pasteObject(canvas); }
+      else if (mod && !e.altKey && e.code === "KeyC" && obj) { e.preventDefault(); void copyObject(obj); markElementCopied(); }
       else if (mod && !e.altKey && e.code === "KeyD" && obj) { e.preventDefault(); void duplicateObject(canvas, obj); }
+      else if (mod && !e.altKey && e.code === "KeyD" && !obj && activePageIdRef.current) { e.preventDefault(); void duplicatePageRef.current(activePageIdRef.current); }
+      else if (mod && e.key === "Enter") { e.preventDefault(); void addPageRef.current(activePageIdRef.current ?? undefined); }
+      else if (mod && !e.altKey && e.code === "KeyA") { e.preventDefault(); selectAll(canvas); }
       else if (e.altKey && e.shiftKey && e.code === "KeyL" && obj) { e.preventDefault(); setLocked(obj, !isLocked(obj)); commit(canvas, obj); }
     };
     window.addEventListener("keydown", onKey);
@@ -223,12 +254,46 @@ export function ObjectContextMenu() {
     await fn();
   };
 
-  // Empty canvas: only paste makes sense.
+  /**
+   * Paste from the menu. A click cannot produce a `paste` event, so read the
+   * system clipboard directly (the browser may ask once), then fall back to
+   * Lumio's own clipboard.
+   */
+  const pasteAnything = run(async () => {
+    const item = await readSystemClipboard();
+    if (item && item.kind !== "element") {
+      window.dispatchEvent(new CustomEvent<ImportDetail>(IMPORT_EVENT, { detail: { item, canvas } }));
+    } else if (hasClipboard()) {
+      await pasteObject(canvas);
+    }
+  });
+
+  // Empty part of the page: Canva's page menu.
   if (!target) {
-    if (!hasClipboard()) return null;
+    const pageId = activePageId;
+    const backdrop = menu.backdrop;
     return (
-      <div ref={ref} role="menu" class="fixed z-50 w-56 bg-white border border-zinc-200 rounded-lg shadow-xl p-1" style={{ left: pos.x, top: pos.y }}>
-        <Row icon={<ClipboardPaste size={14} />} label="Paste" hint="Ctrl+V" onClick={run(() => void pasteObject(canvas))} />
+      <div ref={ref} role="menu" aria-label="Page actions" class="fixed z-50 w-60 bg-white border border-zinc-200 rounded-lg shadow-xl p-1" style={{ left: pos.x, top: pos.y }}>
+        <Row icon={<ClipboardPaste size={14} />} label="Paste" hint="Ctrl+V" onClick={pasteAnything} />
+        <Row icon={<BoxSelect size={14} />} label="Select all" hint="Ctrl+A" disabled={canvas.getObjects().length === 0}
+          onClick={run(() => selectAll(canvas))} />
+        <Divider />
+        <Row icon={<FilePlus2 size={14} />} label="Add page" hint="Ctrl+Enter"
+          onClick={run(() => (addPage as (after?: string) => Promise<void>)(pageId ?? undefined))} />
+        <Row icon={<Files size={14} />} label="Duplicate page" hint="Ctrl+D" disabled={!pageId}
+          onClick={run(() => { if (pageId) return duplicatePage(pageId); })} />
+        <Row icon={<Trash2 size={14} />} label="Delete page" disabled={!pageId || pages.length <= 1}
+          onClick={run(() => { if (pageId) return deletePage(pageId); })} />
+        {backdrop && (
+          <>
+            <Divider />
+            <Row icon={<Shapes size={14} />} label="Select background shape"
+              onClick={run(() => { canvas.setActiveObject(backdrop); canvas.requestRenderAll(); })} />
+          </>
+        )}
+        <Divider />
+        <Row icon={<Download size={14} />} label="Download page" hint="PNG"
+          onClick={run(() => exportPNG(activeDesign?.name ?? "design"))} />
       </div>
     );
   }
@@ -312,9 +377,9 @@ export function ObjectContextMenu() {
 
   return (
     <div ref={ref} role="menu" aria-label="Element actions" class={shell} style={{ left: pos.x, top: pos.y }}>
-      <Row icon={<Copy size={14} />} label="Copy" hint="Ctrl+C" onClick={run(() => copyObject(target))} />
+      <Row icon={<Copy size={14} />} label="Copy" hint="Ctrl+C" onClick={run(async () => { await copyObject(target); markElementCopied(); })} />
       <Row icon={<Paintbrush size={14} />} label="Copy style" hint="Ctrl+Alt+C" onClick={run(() => copyStyle(target))} />
-      <Row icon={<ClipboardPaste size={14} />} label="Paste" hint="Ctrl+V" disabled={!hasClipboard()} onClick={run(() => void pasteObject(canvas))} />
+      <Row icon={<ClipboardPaste size={14} />} label="Paste" hint="Ctrl+V" onClick={pasteAnything} />
       <Row icon={<Paintbrush size={14} />} label="Paste style" hint="Ctrl+Alt+V" disabled={!hasStyleClipboard()} onClick={run(() => { if (pasteStyle(target)) commit(canvas, target); })} />
       <Row icon={<CopyPlus size={14} />} label="Duplicate" hint="Ctrl+D" onClick={run(() => duplicateObject(canvas, target))} />
       <Row icon={<Trash2 size={14} />} label="Delete" hint="Del" onClick={run(() => { canvas.remove(target); canvas.discardActiveObject(); canvas.requestRenderAll(); })} />

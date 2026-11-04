@@ -256,7 +256,7 @@ export function useCanvasState(onChange: () => void = () => {}) {
   // ── Images ──────────────────────────────────────────────────────────
 
   const addImage = useCallback(
-    async (url: string) => {
+    async (url: string, at?: { x: number; y: number }) => {
       const canvas = getActiveCanvas();
       if (!canvas) return;
       try {
@@ -266,9 +266,12 @@ export function useCanvasState(onChange: () => void = () => {}) {
           (canvasHeight * 0.6) / (img.height || 1),
           1
         );
+        // Centred on the drop point when there is one, else on the page.
+        const cx = at?.x ?? canvasWidth / 2;
+        const cy = at?.y ?? canvasHeight / 2;
         img.set({
-          left: canvasWidth / 2 - ((img.width || 0) * scale) / 2,
-          top: canvasHeight / 2 - ((img.height || 0) * scale) / 2,
+          left: cx - ((img.width || 0) * scale) / 2,
+          top: cy - ((img.height || 0) * scale) / 2,
           scaleX: scale,
           scaleY: scale,
         });

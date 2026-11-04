@@ -697,6 +697,55 @@ app.post("/api/uploads", async (c) => {
   return c.json({ url }, 200);
 });
 
+// Save an image from a web address. Images dragged from another site arrive as
+// a URL only, and the browser cannot read cross-origin pixels into the canvas,
+// so the server downloads it and keeps a copy like any other upload.
+const URL_IMAGE_TYPES: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/svg+xml": "svg",
+  "image/avif": "avif",
+};
+const MAX_URL_IMAGE = 15 * 1024 * 1024;
+
+app.post("/api/uploads/from-url", async (c) => {
+  const { url } = await c.req.json<{ url?: string }>().catch(() => ({ url: undefined }));
+  let target: URL;
+  try {
+    target = new URL(String(url));
+  } catch {
+    return c.json({ error: "That is not a valid web address." }, 400);
+  }
+  if (target.protocol !== "https:" && target.protocol !== "http:") {
+    return c.json({ error: "Only http and https images can be added." }, 400);
+  }
+  let res: Response;
+  try {
+    // Many image hosts refuse requests without a browser-like User-Agent.
+    res = await fetch(target.toString(), {
+      redirect: "follow",
+      headers: {
+        Accept: "image/avif,image/webp,image/png,image/svg+xml,image/*;q=0.8",
+        "User-Agent": "Mozilla/5.0 (compatible; Lumio image import)",
+      },
+    });
+  } catch {
+    return c.json({ error: "Could not reach that image." }, 502);
+  }
+  if (!res.ok) return c.json({ error: `The image could not be downloaded (${res.status}).` }, 502);
+  const mime = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  const ext = URL_IMAGE_TYPES[mime];
+  if (!ext) return c.json({ error: "That address is not an image." }, 415);
+  const declared = Number(res.headers.get("content-length") || 0);
+  if (declared > MAX_URL_IMAGE) return c.json({ error: "Images must be at most 15 MB." }, 413);
+  const data = await res.arrayBuffer();
+  if (data.byteLength > MAX_URL_IMAGE) return c.json({ error: "Images must be at most 15 MB." }, 413);
+  const filename = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  return c.json({ url: await putUpload(filename, data, mime) }, 200);
+});
+
 app.get("/api/uploads/:filename", async (c) => {
   const { filename } = c.req.param();
   const result = await getUpload(filename);
