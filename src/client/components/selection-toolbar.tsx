@@ -104,3 +104,32 @@ export function SelectionToolbar() {
     </div>
   );
 }
+
+/** Shows the angle next to the pointer while an element is being rotated. */
+export function RotationBadge() {
+  const { canvas } = useEditor();
+  const [badge, setBadge] = useState<{ angle: number; x: number; y: number } | null>(null);
+  useEffect(() => {
+    if (!canvas) return;
+    const onRotate = (opt: { target?: fabric.FabricObject; e?: Event }) => {
+      const e = opt.e as MouseEvent | undefined;
+      if (!opt.target || !e) return;
+      const a = ((Math.round(opt.target.angle ?? 0) % 360) + 360) % 360;
+      setBadge({ angle: a, x: e.clientX, y: e.clientY });
+    };
+    const clear = () => setBadge(null);
+    canvas.on("object:rotating", onRotate);
+    canvas.on("mouse:up", clear);
+    return () => {
+      canvas.off("object:rotating", onRotate);
+      canvas.off("mouse:up", clear);
+    };
+  }, [canvas]);
+  if (!badge) return null;
+  return (
+    <div class="fixed z-50 pointer-events-none px-2 py-1 rounded-md text-[11px] font-mono bg-[#18181b] text-[#fafafa] shadow-lg"
+      style={{ left: badge.x + 18, top: badge.y + 18 }}>
+      {badge.angle}°
+    </div>
+  );
+}

@@ -3,6 +3,7 @@ import { OPEN_CONTEXT_MENU, type ContextMenuDetail } from "./object-context-menu
 import { IMPORT_EVENT, readDataTransfer, type ImportDetail } from "../lib/clipboard-import";
 import { cropBlockedReason, isCropping, startCrop } from "../lib/crop";
 import { installEdgeCrop } from "../lib/edge-crop";
+import { installRotateControls } from "../lib/rotate-controls";
 import { isBackdrop, isBgImage, lockBackground } from "../lib/background";
 import { restoreElementEdits } from "../lib/image-filters";
 import { useRef, useEffect, useState } from "preact/hooks";
@@ -135,6 +136,8 @@ export function PageCanvas({ page, isActive, width, height, onActivate }: PageCa
     // Styled handles for everything; on images the side handles crop instead of stretching.
     const prepare = (obj: fabric.FabricObject) => {
       applyCustomControls(obj);
+      // Rotate handle below + rotate zones outside the corners (not on crop-mode helpers).
+      if (!obj.excludeFromExport) installRotateControls(obj);
       // Fabric does not save selectable / evented, so re-lock the background on load.
       if (isBgImage(obj)) lockBackground(obj);
       else if (obj instanceof fabric.FabricImage) installEdgeCrop(obj);
