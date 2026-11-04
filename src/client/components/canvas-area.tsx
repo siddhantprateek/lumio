@@ -6,7 +6,7 @@ import { PageCanvas } from "./page-canvas";
 export function CanvasArea() {
   const {
     pages, activePageId, setActiveCanvas, canvasWidth, canvasHeight,
-    zoom, setZoomRaw, setFitScale, addPage, duplicatePage, deletePage, renamePage,
+    zoom, setZoomRaw, setFitScale, addPage, duplicatePage, deletePage, renamePage, canvasMap,
   } = useEditor();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const pageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -104,6 +104,18 @@ export function CanvasArea() {
       ref={wrapperRef}
       class="flex-1 overflow-auto"
       style={{ background: "var(--color-surface-hover)" }}
+      // Clicking the empty area around the pages clears the selection on every
+      // page, like Canva. Clicks on a page, or on page-header controls, are left alone.
+      onMouseDown={(e) => {
+        if (e.button !== 0) return;
+        const el = e.target as HTMLElement;
+        if (el.closest(".canvas-container, button, input, textarea, [role=menu]")) return;
+        for (const c of canvasMap.current.values()) {
+          if (!c.getActiveObject()) continue;
+          c.discardActiveObject();
+          c.requestRenderAll();
+        }
+      }}
     >
       {/* Spacer div — its dimensions match the visual (scaled) size so overflow scrollbars work */}
       <div

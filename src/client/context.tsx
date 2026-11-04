@@ -38,6 +38,8 @@ export interface EditorContextValue {
   unregisterCanvas: (pageId: string) => void;
   setActiveCanvas: (pageId: string) => void;
   activeCanvasId: string | null;
+  /** Every page's Fabric canvas, keyed by page id. */
+  canvasMap: { current: Map<string, fabric.Canvas> };
   canvas: fabric.Canvas | null;
   selectedObject: fabric.FabricObject | null;
   canvasWidth: number;
