@@ -1,4 +1,5 @@
 import { ensureCanvasFonts } from "../lib/google-fonts";
+import { OPEN_CONTEXT_MENU, type ContextMenuDetail } from "./object-context-menu";
 import { useRef, useEffect } from "preact/hooks";
 import * as fabric from "fabric";
 import { useEditor } from "../context";
@@ -145,6 +146,23 @@ export function PageCanvas({ page, isActive, width, height, onActivate }: PageCa
 
     // On mouse down, activate this canvas (use ref to avoid stale closure)
     c.on("mouse:down", () => onActivateRef.current());
+
+    // Right-click: select what is under the pointer and open the element menu.
+    // `fireRightClick` makes Fabric resolve the target for us; `stopContextMenu`
+    // hides the browser's own menu.
+    c.fireRightClick = true;
+    c.stopContextMenu = true;
+    c.on("mouse:down", (opt) => {
+      const e = opt.e as MouseEvent;
+      if (e.button !== 2) return;
+      const target = opt.target ?? null;
+      if (target && c.getActiveObject() !== target) c.setActiveObject(target);
+      if (!target) c.discardActiveObject();
+      c.requestRenderAll();
+      window.dispatchEvent(new CustomEvent<ContextMenuDetail>(OPEN_CONTEXT_MENU, {
+        detail: { x: e.clientX, y: e.clientY, canvas: c, target },
+      }));
+    });
 
     fabricRef.current = c;
     registerCanvas(page.id, c);

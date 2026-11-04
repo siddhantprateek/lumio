@@ -5,6 +5,7 @@ import { reflowCanvas, type Dimensions } from "../resize";
 import { buildColorMap, brandFontFor, isHex } from "../lib/brand";
 import { buildGradient, parseGradientCss } from "../lib/gradient";
 import { cutOutSubject } from "../lib/cutout";
+import { installTextBehind, linkCutout, syncCutout, unlinkCutout } from "../lib/text-behind";
 import { ensureCanvasFonts } from "../lib/google-fonts";
 import { downloadDataURL, exportPagesToPDF, renderPageToPNG, slugify } from "../lib/export";
 
@@ -103,6 +104,8 @@ export function useCanvasState(onChange: () => void = () => {}) {
 
   const registerCanvas = useCallback((pageId: string, canvas: fabric.Canvas) => {
     canvasMapRef.current.set(pageId, canvas);
+    // Before the history listeners, so saved steps hold synced cut-outs.
+    installTextBehind(canvas);
 
     // Selection events
     canvas.on("selection:created", (e) => {
@@ -314,6 +317,7 @@ export function useCanvasState(onChange: () => void = () => {}) {
 
   const [cutoutBusy, setCutoutBusy] = useState(false);
   const [cutoutError, setCutoutError] = useState<string | null>(null);
+  const [cutoutProgress, setCutoutProgress] = useState<number | null>(null);
 
   /**
    * Removes the background of the selected image. With `keepOriginal` the
@@ -329,18 +333,44 @@ export function useCanvasState(onChange: () => void = () => {}) {
       setCutoutBusy(true);
       setCutoutError(null);
       try {
-        const url = await cutOutSubject(target);
+        const url = await cutOutSubject(target, setCutoutProgress);
         if (!keepOriginal) {
           await target.setSrc(url, { crossOrigin: "anonymous" });
           canvas.requestRenderAll();
           saveHistory(pageId);
         } else {
+          // Text behind subject: photo (bottom) → text (middle) → cut-out (top),
+          // all in the photo's box. The cut-out follows the photo from now on.
           const cutout = await target.clone();
           await cutout.setSrc(url, { crossOrigin: "anonymous" });
-          (cutout as any).isCutout = true;
+          linkCutout(target, cutout);
+          syncCutout(canvas, target);
           canvas.add(cutout);
           canvas.bringObjectToFront(cutout);
-          canvas.setActiveObject(cutout);
+          syncCutout(canvas, target);
+
+          // Start with a big headline behind the subject, so the effect shows at once.
+          // aCoords are in page units, unaffected by zoom or the retina transform.
+          target.setCoords();
+          const corners = Object.values(target.aCoords);
+          const left = Math.min(...corners.map((p) => p.x));
+          const top = Math.min(...corners.map((p) => p.y));
+          const width = Math.max(...corners.map((p) => p.x)) - left;
+          const height = Math.max(...corners.map((p) => p.y)) - top;
+          const text = new fabric.Textbox("TEXT", {
+            left,
+            top: top + height * 0.2,
+            width,
+            fontSize: Math.max(24, Math.round(height * 0.3)),
+            fontWeight: "800",
+            fontFamily: "Montserrat",
+            fill: "#ffffff",
+            textAlign: "center",
+            shadow: new fabric.Shadow({ color: "rgba(0,0,0,0.35)", blur: 12, offsetX: 0, offsetY: 4 }),
+          });
+          canvas.add(text);
+          canvas.moveObjectTo(text, canvas.getObjects().indexOf(cutout));
+          canvas.setActiveObject(text);
           canvas.requestRenderAll();
         }
         bumpSelection();
@@ -349,10 +379,20 @@ export function useCanvasState(onChange: () => void = () => {}) {
         setCutoutError("Could not remove the background. Check your connection and try again.");
       } finally {
         setCutoutBusy(false);
+        setCutoutProgress(null);
       }
     },
     [getActiveCanvas, selectedObject, saveHistory]
   );
+
+  /** Takes the cut-out away again; the photo and any text stay. */
+  const removeTextBehind = useCallback(() => {
+    const canvas = getActiveCanvas();
+    if (!canvas || !selectedObject) return;
+    unlinkCutout(canvas, selectedObject);
+    canvas.requestRenderAll();
+    bumpSelection();
+  }, [getActiveCanvas, selectedObject]);
 
   // ── Object manipulation ─────────────────────────────────────────────
 
@@ -370,6 +410,7 @@ export function useCanvasState(onChange: () => void = () => {}) {
       const pageId = activeCanvasIdRef.current;
       if (!canvas || !selectedObject || !pageId) return;
       selectedObject.set(props as Partial<fabric.FabricObject>);
+      syncCutout(canvas, selectedObject);
       canvas.requestRenderAll();
       saveHistory(pageId);
       bumpSelection();
@@ -723,7 +764,9 @@ export function useCanvasState(onChange: () => void = () => {}) {
     addImage,
     setBackground,
     removeBackground,
+    removeTextBehind,
     cutoutBusy,
+    cutoutProgress,
     cutoutError,
     updateSelectedObject,
     changeLayer,

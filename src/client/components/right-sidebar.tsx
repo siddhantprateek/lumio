@@ -20,7 +20,10 @@ import {
 import * as fabric from "fabric";
 import { useEditor } from "../context";
 import { FontPicker } from "./font-picker";
-import { gradientToSpec, specToCss, type GradientSpec } from "../lib/gradient";
+import { buildObjectGradient, gradientToSpec, specToCss, type GradientSpec } from "../lib/gradient";
+import { GradientControls } from "./gradient-controls";
+import { FontSizeInput } from "./font-size-input";
+import { hasTextBehind } from "../lib/text-behind";
 
 /**
  * The active kit's colours, offered wherever a colour is chosen. This is what
@@ -97,32 +100,156 @@ function FieldNameInput({
 function GradientEditor() {
   const { canvas, setBackground } = useEditor();
   const current = gradientToSpec(canvas?.backgroundColor);
-  const [draft, setSpec] = useState<GradientSpec>({ from: "#667eea", to: "#764ba2", angle: 135 });
+  const [draft, setDraft] = useState<GradientSpec>({ from: "#667eea", to: "#764ba2", angle: 135 });
   // The live canvas background wins, so presets picked elsewhere show up here.
   const spec = current ?? draft;
-  const apply = (next: GradientSpec) => {
-    setSpec(next);
-    setBackground("gradient", specToCss(next));
-  };
   return (
     <div class="flex flex-col gap-2">
       <label class="text-[11px] text-zinc-400">Gradient background</label>
-      <div class="flex items-center gap-2">
-        <input type="color" aria-label="Gradient start colour" class="w-8 h-8 rounded border border-zinc-300 cursor-pointer bg-transparent" value={spec.from}
-          onChange={(e) => apply({ ...spec, from: (e.target as HTMLInputElement).value })} />
-        <div class="flex-1 h-8 rounded border border-zinc-300" style={{ background: specToCss(spec) }} />
-        <input type="color" aria-label="Gradient end colour" class="w-8 h-8 rounded border border-zinc-300 cursor-pointer bg-transparent" value={spec.to}
-          onChange={(e) => apply({ ...spec, to: (e.target as HTMLInputElement).value })} />
-      </div>
-      <label class="text-[11px] text-zinc-400 flex justify-between">Angle<span class="font-mono">{spec.angle}°</span></label>
-      <input type="range" min="0" max="360" step="5" class="w-full accent-accent" value={spec.angle}
-        onChange={(e) => apply({ ...spec, angle: parseInt((e.target as HTMLInputElement).value) })} />
+      <GradientControls
+        spec={spec}
+        onChange={(next) => {
+          setDraft(next);
+          setBackground("gradient", specToCss(next));
+        }}
+      />
     </div>
   );
 }
 
+/**
+ * Solid or gradient fill for text and shapes. A gradient stretches with the
+ * object, so resizing text keeps the blend across it.
+ */
+function FillEditor({ label, solidDefault }: { label: string; solidDefault: string }) {
+  const { selectedObject, updateSelectedObject } = useEditor();
+  if (!selectedObject) return null;
+  const fill = selectedObject.fill;
+  const spec = gradientToSpec(fill);
+  const solid = typeof fill === "string" && fill ? fill : solidDefault;
+  const mode = spec ? "gradient" : "solid";
+
+  return (
+    <div>
+      <label class="text-[11px] text-zinc-400 mb-1 block">{label}</label>
+      <div class="flex gap-1 mb-2" role="group" aria-label={`${label} type`}>
+        {(["solid", "gradient"] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            aria-pressed={mode === m}
+            class={`flex-1 py-1 rounded-md border text-xs cursor-pointer capitalize transition-all ${
+              mode === m ? "bg-accent/20 border-accent text-accent" : "bg-transparent border-zinc-300 text-zinc-500 hover:text-zinc-900"
+            }`}
+            onClick={() => {
+              if (m === mode) return;
+              updateSelectedObject({
+                fill: m === "gradient"
+                  ? buildObjectGradient({ from: solid, to: "#8b5cf6", angle: 90 })
+                  : (spec?.from ?? solidDefault),
+              });
+            }}
+          >{m}</button>
+        ))}
+      </div>
+      {spec ? (
+        <GradientControls spec={spec} onChange={(next) => updateSelectedObject({ fill: buildObjectGradient(next) })} />
+      ) : (
+        <>
+          <div class="flex items-center gap-2">
+            <input
+              type="color"
+              class="w-8 h-8 rounded border border-zinc-300 cursor-pointer bg-transparent shrink-0"
+              value={solid}
+              onInput={(e) => updateSelectedObject({ fill: (e.target as HTMLInputElement).value })}
+            />
+            <input
+              type="text"
+              class="flex-1 bg-white border border-zinc-300 rounded-md text-xs text-zinc-700 px-2 py-1.5 outline-none focus:border-accent font-mono"
+              value={solid}
+              onInput={(e) => updateSelectedObject({ fill: (e.target as HTMLInputElement).value })}
+            />
+          </div>
+          <BrandSwatches onPick={(color) => updateSelectedObject({ fill: color })} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function Slider({ label, value, min, max, step = 1, unit = "", onChange }: {
+  label: string; value: number; min: number; max: number; step?: number; unit?: string; onChange: (v: number) => void;
+}) {
+  return (
+    <div>
+      <label class="text-[11px] text-zinc-400 mb-1 flex justify-between">
+        {label}
+        <span class="font-mono">{Math.round(value * 100) / 100}{unit}</span>
+      </label>
+      <input type="range" min={min} max={max} step={step} aria-label={label} class="w-full accent-accent" value={value}
+        onInput={(e) => onChange(parseFloat((e.target as HTMLInputElement).value))} />
+    </div>
+  );
+}
+
+/** Rotation, tilt and shadow, like the text controls in text-behind-image. */
+function TextEffects() {
+  const { selectedObject, updateSelectedObject } = useEditor();
+  if (!selectedObject) return null;
+  const shadow = selectedObject.shadow instanceof fabric.Shadow ? selectedObject.shadow : null;
+  const setShadow = (patch: Partial<{ color: string; blur: number; offsetX: number; offsetY: number }>) => {
+    const base = shadow ?? { color: "rgba(0,0,0,0.5)", blur: 8, offsetX: 0, offsetY: 4 };
+    updateSelectedObject({
+      shadow: new fabric.Shadow({ color: base.color, blur: base.blur, offsetX: base.offsetX, offsetY: base.offsetY, ...patch }),
+    });
+  };
+  const alphaOf = (color: string) => new fabric.Color(color).getAlpha();
+
+  return (
+    <>
+      <div class="border-t border-zinc-200 pt-3">
+        <h3 class="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mb-2">Effects</h3>
+        <div class="flex flex-col gap-3">
+          <Slider label="Rotation" unit="°" min={-180} max={180} value={selectedObject.angle ?? 0}
+            onChange={(angle) => updateSelectedObject({ angle })} />
+          <Slider label="Tilt horizontal" unit="°" min={-45} max={45} value={selectedObject.skewX ?? 0}
+            onChange={(skewX) => updateSelectedObject({ skewX })} />
+          <Slider label="Tilt vertical" unit="°" min={-45} max={45} value={selectedObject.skewY ?? 0}
+            onChange={(skewY) => updateSelectedObject({ skewY })} />
+        </div>
+      </div>
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-[11px] text-zinc-400" for="text-shadow-toggle">Shadow</label>
+          <input id="text-shadow-toggle" type="checkbox" class="accent-accent cursor-pointer" checked={!!shadow}
+            onChange={(e) => ((e.target as HTMLInputElement).checked ? setShadow({}) : updateSelectedObject({ shadow: null }))} />
+        </div>
+        {shadow && (
+          <div class="flex flex-col gap-3">
+            <div class="flex items-center gap-2">
+              <input type="color" aria-label="Shadow colour" class="w-8 h-8 rounded border border-zinc-300 cursor-pointer bg-transparent shrink-0"
+                value={`#${new fabric.Color(shadow.color).toHex()}`}
+                onInput={(e) => {
+                  const hex = (e.target as HTMLInputElement).value;
+                  setShadow({ color: new fabric.Color(hex).setAlpha(alphaOf(shadow.color)).toRgba() });
+                }} />
+              <div class="flex-1">
+                <Slider label="Shadow opacity" unit="%" min={0} max={100} value={Math.round(alphaOf(shadow.color) * 100)}
+                  onChange={(v) => setShadow({ color: new fabric.Color(shadow.color).setAlpha(v / 100).toRgba() })} />
+              </div>
+            </div>
+            <Slider label="Shadow blur" min={0} max={60} value={shadow.blur} onChange={(blur) => setShadow({ blur })} />
+            <Slider label="Shadow offset X" min={-50} max={50} value={shadow.offsetX} onChange={(offsetX) => setShadow({ offsetX })} />
+            <Slider label="Shadow offset Y" min={-50} max={50} value={shadow.offsetY} onChange={(offsetY) => setShadow({ offsetY })} />
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 export function RightSidebar() {
-  const { removeBackground, cutoutBusy, cutoutError, selectedObject, updateSelectedObject, changeLayer, deleteSelected, canvas, setBackground, canvasWidth, canvasHeight } =
+  const { removeBackground, removeTextBehind, cutoutBusy, cutoutProgress, cutoutError, selectedObject, updateSelectedObject, changeLayer, deleteSelected, canvas, setBackground, canvasWidth, canvasHeight } =
     useEditor();
 
   const isText = selectedObject instanceof fabric.Textbox || selectedObject instanceof fabric.IText;
@@ -230,20 +357,10 @@ export function RightSidebar() {
               onChange={(fontFamily) => updateSelectedObject({ fontFamily })}
             />
 
-            {/* Font size */}
-            <div>
-              <label class="text-[11px] text-zinc-400 mb-1 block">Font size</label>
-              <input
-                type="number"
-                class="w-full bg-white border border-zinc-300 rounded-md text-xs text-zinc-700 px-2 py-1.5 outline-none focus:border-accent"
-                value={(selectedObject as any).fontSize || 18}
-                onInput={(e) =>
-                  updateSelectedObject({
-                    fontSize: parseInt((e.target as HTMLInputElement).value) || 18,
-                  })
-                }
-              />
-            </div>
+            <FontSizeInput
+              value={Math.round((selectedObject as any).fontSize || 18)}
+              onChange={(fontSize) => updateSelectedObject({ fontSize })}
+            />
 
             {/* Bold / Italic / Underline */}
             <div>
@@ -319,29 +436,7 @@ export function RightSidebar() {
               </div>
             </div>
 
-            {/* Text color */}
-            <div>
-              <label class="text-[11px] text-zinc-400 mb-1 block">Color</label>
-              <div class="flex items-center gap-2">
-                <input
-                  type="color"
-                  class="w-8 h-8 rounded border border-zinc-300 cursor-pointer bg-transparent shrink-0"
-                  value={((selectedObject as any).fill as string) || "#ffffff"}
-                  onInput={(e) =>
-                    updateSelectedObject({ fill: (e.target as HTMLInputElement).value })
-                  }
-                />
-                <input
-                  type="text"
-                  class="flex-1 bg-white border border-zinc-300 rounded-md text-xs text-zinc-700 px-2 py-1.5 outline-none focus:border-accent font-mono"
-                  value={((selectedObject as any).fill as string) || "#ffffff"}
-                  onInput={(e) =>
-                    updateSelectedObject({ fill: (e.target as HTMLInputElement).value })
-                  }
-                />
-              </div>
-              <BrandSwatches onPick={(color) => updateSelectedObject({ fill: color })} />
-            </div>
+            <FillEditor label="Color" solidDefault="#ffffff" />
 
             {/* Line height */}
             <div>
@@ -387,32 +482,12 @@ export function RightSidebar() {
           </>
         )}
 
+        {isText && <TextEffects />}
+
         {/* ── Shape properties ──────────────────────────────────────── */}
         {isShape && (
           <>
-            {/* Fill color */}
-            <div>
-              <label class="text-[11px] text-zinc-400 mb-1 block">Fill color</label>
-              <div class="flex items-center gap-2">
-                <input
-                  type="color"
-                  class="w-8 h-8 rounded border border-zinc-300 cursor-pointer bg-transparent shrink-0"
-                  value={(selectedObject.fill as string) || "#6366f1"}
-                  onInput={(e) =>
-                    updateSelectedObject({ fill: (e.target as HTMLInputElement).value })
-                  }
-                />
-                <input
-                  type="text"
-                  class="flex-1 bg-white border border-zinc-300 rounded-md text-xs text-zinc-700 px-2 py-1.5 outline-none focus:border-accent font-mono"
-                  value={(selectedObject.fill as string) || "#6366f1"}
-                  onInput={(e) =>
-                    updateSelectedObject({ fill: (e.target as HTMLInputElement).value })
-                  }
-                />
-              </div>
-              <BrandSwatches onPick={(color) => updateSelectedObject({ fill: color })} />
-            </div>
+            <FillEditor label="Fill" solidDefault="#6366f1" />
 
             {/* Stroke */}
             <div>
@@ -473,17 +548,27 @@ export function RightSidebar() {
                 <button type="button" disabled={cutoutBusy}
                   class="flex items-center justify-center gap-1.5 p-1.5 rounded-md border border-zinc-300 bg-transparent text-xs text-zinc-600 cursor-pointer hover:text-zinc-900 hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-wait"
                   onClick={() => removeBackground(false)}>
-                  <Scissors size={14} />{cutoutBusy ? "Working…" : "Remove background"}
+                  <Scissors size={14} />{cutoutBusy ? (cutoutProgress !== null && cutoutProgress < 1 ? `Downloading model ${Math.round(cutoutProgress * 100)}%` : "Working…") : "Remove background"}
                 </button>
-                <button type="button" disabled={cutoutBusy}
-                  class="flex items-center justify-center gap-1.5 p-1.5 rounded-md border border-zinc-300 bg-transparent text-xs text-zinc-600 cursor-pointer hover:text-zinc-900 hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-wait"
-                  onClick={() => removeBackground(true)}>
-                  <Layers size={14} />{cutoutBusy ? "Working…" : "Put text behind subject"}
-                </button>
+                {hasTextBehind(canvas, selectedObject) ? (
+                  <button type="button"
+                    class="flex items-center justify-center gap-1.5 p-1.5 rounded-md border border-accent bg-accent/10 text-xs text-accent cursor-pointer hover:bg-accent/20"
+                    onClick={removeTextBehind}>
+                    <Layers size={14} />Turn off text behind subject
+                  </button>
+                ) : (
+                  <button type="button" disabled={cutoutBusy}
+                    class="flex items-center justify-center gap-1.5 p-1.5 rounded-md border border-zinc-300 bg-transparent text-xs text-zinc-600 cursor-pointer hover:text-zinc-900 hover:bg-zinc-100 disabled:opacity-50 disabled:cursor-wait"
+                    onClick={() => removeBackground(true)}>
+                    <Layers size={14} />{cutoutBusy ? (cutoutProgress !== null && cutoutProgress < 1 ? `Downloading model ${Math.round(cutoutProgress * 100)}%` : "Working…") : "Put text behind subject"}
+                  </button>
+                )}
               </div>
               <p class="text-[10px] text-zinc-400 mt-1 leading-snug">
-                {cutoutBusy ? "First run downloads the cut-out model, so it can take a moment."
-                  : "Text behind subject keeps the photo and adds the subject on top. New text goes between them."}
+                {cutoutBusy ? "The first run downloads the cut-out model (about 44 MB); after that it is cached."
+                  : hasTextBehind(canvas, selectedObject)
+                    ? "The subject sits on top and follows this photo. Text you add goes behind it; click through the subject to select that text."
+                    : "Cuts the subject out and lays it over the photo, with text in between."}
               </p>
               {cutoutError && <p role="alert" class="text-[11px] text-red-500 mt-1">{cutoutError}</p>}
             </div>

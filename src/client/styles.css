@@ -76,12 +76,29 @@ body {
 /* ── Custom range slider ───────────────────────────────────────────── */
 input[type="range"] {
   @apply appearance-none bg-transparent cursor-pointer;
+  height: 14px;
+}
+
+/* The track is `-runnable-track`; `-slider-track` is not a real pseudo-element,
+   which is why the line was invisible. */
+input[type="range"]::-webkit-slider-runnable-track {
+  background: var(--color-zinc-300, #d4d4d8);
+  border-radius: 9999px;
   height: 4px;
 }
 
-input[type="range"]::-webkit-slider-track {
-  @apply bg-zinc-200 rounded-full;
+input[type="range"]::-moz-range-track {
+  background: var(--color-zinc-300, #d4d4d8);
+  border-radius: 9999px;
   height: 4px;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: var(--color-accent);
+  border: 2px solid white;
 }
 
 input[type="range"]::-webkit-slider-thumb {

@@ -3,6 +3,7 @@ import { Toolbar } from "./toolbar";
 import { LeftSidebar } from "./left-sidebar";
 import { RightSidebar } from "./right-sidebar";
 import { PagesBar } from "./pages-bar";
+import { ObjectContextMenu } from "./object-context-menu";
 
 export function Editor() {
   return (
@@ -16,6 +17,7 @@ export function Editor() {
         </div>
         <RightSidebar />
       </div>
+      <ObjectContextMenu />
     </div>
   );
 }
