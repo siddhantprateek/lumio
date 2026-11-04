@@ -6,8 +6,8 @@ import * as fabric from "fabric";
  * Every effect is a small GLSL program run by one Fabric filter class,
  * `LumioEffect`, which picks the shader by effect id. Effects stack in order,
  * and each has its own controls (not just intensity). Spatial controls are a
- * percentage of the picture's short side, so an effect looks the same on a
- * 300 px thumbnail and a 4000 px photo.
+ * percentage of the element's long side, so an effect looks the same on a
+ * 300 px thumbnail and a 4000 px photo, and on a wide one-line text box.
  *
  * The filter is registered with Fabric, so effects save and reload with the
  * design. They need WebGL (every current browser has it); without it the
@@ -64,7 +64,7 @@ const HEADER = `
 
   vec2 px;   // one pixel, in uv
   vec2 res;  // picture size, in pixels
-  vec2 S;    // uv per "1.0 = short side" unit
+  vec2 S;    // uv per "1.0 = long side" unit
   float aspect;
 
   vec4 tex(vec2 p) { return texture2D(uTexture, clamp(p, 0.0, 1.0)); }
@@ -77,7 +77,7 @@ const HEADER = `
   }
   float fbm(vec2 p) { float v = 0.0; float a = 0.5; for (int i = 0; i < 5; i++) { v += a * vnoise(p); p *= 2.03; a *= 0.5; } return v; }
   vec2 rot(vec2 v, float a) { float c = cos(a), s = sin(a); return vec2(c * v.x - s * v.y, s * v.x + c * v.y); }
-  // Disc blur with a golden-angle spiral; radius in short-side units.
+  // Disc blur with a golden-angle spiral; radius in long-side units.
   vec3 discBlur(vec2 p, float radius) {
     vec3 acc = vec3(0.0);
     for (int i = 0; i < 40; i++) {
@@ -96,7 +96,7 @@ function program(body: string) {
     px = vec2(uStepW, uStepH);
     res = 1.0 / px;
     aspect = res.x / res.y;
-    S = vec2(min(res.x, res.y)) / res;
+    S = vec2(max(res.x, res.y)) / res;
     float p0 = uP[0], p1 = uP[1], p2 = uP[2], p3 = uP[3], p4 = uP[4], p5 = uP[5];
     float p6 = uP[6], p7 = uP[7], p8 = uP[8], p9 = uP[9], p10 = uP[10], p11 = uP[11];
     vec2 uv = vTexCoord;
@@ -356,7 +356,7 @@ export const EFFECTS: EffectDef[] = [
       r("size", "Dot size", 0.4, 6, 1.2, 0.05, "%"), r("angle", "Angle", 0, 90, 45, 1, "°"), sel("mode", "Style", 0, [["Ink on paper", 0], ["Colour dots", 1]]),
       r("contrast", "Contrast", 50, 250, 120), col("ink", "Ink", "#111111"), col("paper", "Paper", "#f5f0e6")],
     glsl: `
-      float cellPx = p0 / 100.0 * min(res.x, res.y);
+      float cellPx = p0 / 100.0 * max(res.x, res.y);
       vec2 pp = rot(uv * res, radians(p1)) / cellPx;
       vec2 f = fract(pp) - 0.5;
       vec2 cuv = rot((floor(pp) + 0.5) * cellPx, -radians(p1)) / res;

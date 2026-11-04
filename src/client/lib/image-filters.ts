@@ -2,6 +2,7 @@ import * as fabric from "fabric";
 import { LumioTone } from "./tone-filter";
 import { LumioPop, pop, popPixel, type PopProps } from "./pop-filter";
 import { effectFilters, type EffectState } from "./effects";
+import { elementSnapshot, setElementFilters } from "./element-effects";
 
 /*
  * Image looks, Canva-style. Every look is a single 4×5 colour matrix
@@ -265,11 +266,11 @@ export interface ShadowStyle {
   kind: "none" | "glow" | "drop";
 }
 
-type Edited = fabric.FabricImage & { lumioLook?: LookState; lumioAdjust?: Adjustments; lumioEffects?: EffectState[] };
+type Edited = fabric.FabricObject & { lumioLook?: LookState; lumioAdjust?: Adjustments; lumioEffects?: EffectState[] };
 
-export const lookOf = (img: fabric.FabricImage) => (img as Edited).lumioLook;
-export const adjustOf = (img: fabric.FabricImage) => ({ ...NO_ADJUSTMENTS, ...(img as Edited).lumioAdjust });
-export const effectsOf = (img: fabric.FabricImage): EffectState[] => (img as Edited).lumioEffects ?? [];
+export const lookOf = (img: fabric.FabricObject) => (img as Edited).lumioLook;
+export const adjustOf = (img: fabric.FabricObject) => ({ ...NO_ADJUSTMENTS, ...(img as Edited).lumioAdjust });
+export const effectsOf = (img: fabric.FabricObject): EffectState[] => (img as Edited).lumioEffects ?? [];
 
 /** The pop part of the active look at its intensity, if the look has one. */
 export function lookPop(state: LookState | undefined): PopProps | undefined {
@@ -346,7 +347,7 @@ export function buildFilters(state: LookState | undefined, adjust: Adjustments, 
  * and returns settings that stretch the tones, centre the exposure and
  * neutralise the cast, with a little extra vibrance.
  */
-export function autoAdjust(img: fabric.FabricImage): Adjustments {
+export function autoAdjust(img: fabric.FabricObject): Adjustments {
   const src = thumbnailSource(img, 96);
   if (!src) return NO_ADJUSTMENTS;
   const lum: number[] = [];
@@ -378,11 +379,16 @@ export function autoAdjust(img: fabric.FabricImage): Adjustments {
 }
 
 /** Applies a look / adjustments to an image (and its linked cut-out, if any). */
+/**
+ * Applies a look / adjustments / effects. Images use Fabric's own filters;
+ * shapes and text get the same chain on their render cache. `also` is a
+ * linked text-behind cut-out, which must match its photo.
+ */
 export function applyEdits(
-  img: fabric.FabricImage,
+  img: fabric.FabricObject,
   state: LookState | undefined,
   adjust: Adjustments,
-  also?: fabric.FabricImage,
+  also?: fabric.FabricObject,
   effects: EffectState[] = effectsOf(img),
 ) {
   const edited = img as Edited;
@@ -390,16 +396,31 @@ export function applyEdits(
   edited.lumioAdjust = adjust;
   edited.lumioEffects = effects;
   for (const target of also ? [img, also] : [img]) {
-    target.filters = buildFilters(state, adjust, effects);
-    target.applyFilters();
+    if (target instanceof fabric.FabricImage) {
+      target.filters = buildFilters(state, adjust, effects);
+      target.applyFilters();
+    } else {
+      setElementFilters(target, buildFilters(state, adjust, effects));
+    }
   }
+}
+
+/** After a page loads, rebuild the render-cache filters of edited shapes and text. */
+export function restoreElementEdits(obj: fabric.FabricObject) {
+  if (obj instanceof fabric.FabricImage) return; // images restore their own filters
+  const e = obj as Edited;
+  if (!e.lumioLook && !e.lumioAdjust && !e.lumioEffects?.length) return;
+  setElementFilters(obj, buildFilters(e.lumioLook, adjustOf(obj), effectsOf(obj)));
 }
 
 // ── Thumbnails ─────────────────────────────────────────────────────────
 
 /** Small copy of the image's unfiltered pixels, for drawing filter previews. */
-export function thumbnailSource(img: fabric.FabricImage, size = 88): ImageData | null {
-  const el = ((img as any)._originalElement ?? img.getElement()) as CanvasImageSource & { width: number; height: number };
+export function thumbnailSource(img: fabric.FabricObject, size = 88): ImageData | null {
+  // Images: the original, unfiltered pixels. Shapes and text: a snapshot without effects.
+  const el = (img instanceof fabric.FabricImage
+    ? ((img as any)._originalElement ?? img.getElement())
+    : elementSnapshot(img, size)) as CanvasImageSource & { width: number; height: number };
   const w = (el as HTMLImageElement).naturalWidth || el.width;
   const h = (el as HTMLImageElement).naturalHeight || el.height;
   if (!w || !h) return null;
@@ -443,4 +464,76 @@ export function renderThumbnail(source: ImageData, m: Matrix, p?: PopProps): str
   c.height = source.height;
   c.getContext("2d")!.putImageData(out, 0, 0);
   return c.toDataURL("image/jpeg", 0.8);
+}
+
+// ── Preview source ─────────────────────────────────────────────────────
+
+let sampleCache: { size: number; data: ImageData } | null = null;
+
+/**
+ * A built-in sample picture (sky, sun, hills, a figure, some texture) drawn in
+ * code, for previewing looks and effects when the element itself would show
+ * nothing useful: a flat shape, a plain background, thin text.
+ */
+export function sampleImageData(size = 120): ImageData {
+  if (sampleCache?.size === size) return sampleCache.data;
+  const c = document.createElement("canvas");
+  c.width = size;
+  c.height = size;
+  const x = c.getContext("2d", { willReadFrequently: true })!;
+  const k = size / 100;
+  const sky = x.createLinearGradient(0, 0, 0, size);
+  sky.addColorStop(0, "#2f6fd6");
+  sky.addColorStop(0.55, "#8fb8f0");
+  sky.addColorStop(1, "#f6b26b");
+  x.fillStyle = sky;
+  x.fillRect(0, 0, size, size);
+  x.fillStyle = "#fff4c2";
+  x.beginPath();
+  x.arc(74 * k, 26 * k, 11 * k, 0, Math.PI * 2);
+  x.fill();
+  x.fillStyle = "#2f6b4f";
+  x.beginPath();
+  x.moveTo(0, 100 * k); x.lineTo(30 * k, 58 * k); x.lineTo(62 * k, 100 * k);
+  x.fill();
+  x.fillStyle = "#1f2a44";
+  x.beginPath();
+  x.moveTo(40 * k, 100 * k); x.lineTo(72 * k, 62 * k); x.lineTo(100 * k, 100 * k);
+  x.fill();
+  // A small figure: skin, red jacket, dark hair — warm tones next to the cool sky.
+  x.fillStyle = "#e0703d";
+  x.beginPath();
+  x.arc(50 * k, 62 * k, 6 * k, 0, Math.PI * 2);
+  x.fill();
+  x.fillStyle = "#1a1a1a";
+  x.beginPath();
+  x.arc(50 * k, 59 * k, 6 * k, Math.PI, 0);
+  x.fill();
+  x.fillStyle = "#e23d32";
+  x.fillRect(43 * k, 68 * k, 14 * k, 20 * k);
+  x.fillStyle = "#f3efe8";
+  x.fillRect(46 * k, 68 * k, 8 * k, 12 * k);
+  const data = x.getImageData(0, 0, size, size);
+  sampleCache = { size, data };
+  return data;
+}
+
+/** True if a thumbnail has almost nothing to show (one flat colour, or mostly empty). */
+function isFlat(data: ImageData): boolean {
+  const d = data.data;
+  let n = 0, sum = 0, sum2 = 0;
+  for (let i = 0; i < d.length; i += 16) {
+    if (d[i + 3] < 128) continue;
+    const l = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+    n++; sum += l; sum2 += l * l;
+  }
+  if (n < (d.length / 16) * 0.25) return true; // mostly transparent (e.g. thin text)
+  const mean = sum / n;
+  return Math.sqrt(Math.max(0, sum2 / n - mean * mean)) < 0.03;
+}
+
+/** What to draw look / effect previews on: the element itself, or the sample when it would look blank. */
+export function previewSource(obj: fabric.FabricObject, size = 88): ImageData {
+  const own = thumbnailSource(obj, size);
+  return own && !isFlat(own) ? own : sampleImageData(size);
 }

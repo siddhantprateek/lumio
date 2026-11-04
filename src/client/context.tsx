@@ -54,6 +54,8 @@ export interface EditorContextValue {
   addShape: (type: "rect" | "circle" | "line" | "triangle") => void;
   addImage: (url: string, at?: { x: number; y: number }) => Promise<void>;
   setBackground: (type: "color" | "gradient" | "image", value: string) => void;
+  editBackground: () => Promise<fabric.FabricObject | null>;
+  removeBackgroundImage: () => void;
   removeBackground: (keepOriginal: boolean) => Promise<void>;
   removeTextBehind: () => void;
   cutoutBusy: boolean;

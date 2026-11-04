@@ -229,7 +229,7 @@ function PositionPanel() {
   );
 }
 
-const TITLES = { position: "Position", effects: "Effects", "edit-image": "Edit image" } as const;
+const TITLES = { position: "Position", effects: "Shadow & tilt", "edit-image": "Edit" } as const;
 
 /** The drawer that opens over the left of the canvas, like Canva's Position and Effects panels. */
 export function SidePanel() {
@@ -241,8 +241,9 @@ export function SidePanel() {
   const isText = selectedObject instanceof fabric.Textbox || selectedObject instanceof fabric.IText;
   const isImage = selectedObject instanceof fabric.FabricImage;
   useEffect(() => {
-    if ((panel === "effects" && !isText) || (panel === "edit-image" && !isImage)) setPanel(null);
-  }, [panel, isText, isImage]);
+    const editable = !!selectedObject && !(selectedObject instanceof fabric.ActiveSelection);
+    if ((panel === "effects" && !isText) || (panel === "edit-image" && !editable)) setPanel(null);
+  }, [panel, isText, isImage, selectedObject]);
 
   if (!panel) return null;
   return (
@@ -258,7 +259,9 @@ export function SidePanel() {
       <div class="px-4 pb-4 overflow-y-auto flex-1">
         {panel === "position" && <PositionPanel />}
         {panel === "effects" && isText && <div class="flex flex-col gap-4"><TextEffects /></div>}
-        {panel === "edit-image" && isImage && <ImageEditPanel key={(selectedObject as fabric.FabricImage).getSrc()} />}
+        {panel === "edit-image" && selectedObject && (
+          <ImageEditPanel key={isImage ? (selectedObject as fabric.FabricImage).getSrc() : String(canvas?.getObjects().indexOf(selectedObject))} />
+        )}
       </div>
     </aside>
   );

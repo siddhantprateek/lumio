@@ -3,24 +3,12 @@ import { OPEN_CONTEXT_MENU, type ContextMenuDetail } from "./object-context-menu
 import { IMPORT_EVENT, readDataTransfer, type ImportDetail } from "../lib/clipboard-import";
 import { cropBlockedReason, isCropping, startCrop } from "../lib/crop";
 import { installEdgeCrop } from "../lib/edge-crop";
+import { isBackdrop, isBgImage, lockBackground } from "../lib/background";
+import { restoreElementEdits } from "../lib/image-filters";
 import { useRef, useEffect, useState } from "preact/hooks";
 import * as fabric from "fabric";
 import { useEditor } from "../context";
 import type { Page } from "../types";
-
-/** True for the lowest element when it is a shape or image covering (almost) the whole page. */
-function isBackdrop(canvas: fabric.Canvas, obj: fabric.FabricObject, width: number, height: number) {
-  if (canvas.getObjects()[0] !== obj) return false;
-  if (obj instanceof fabric.Textbox || obj instanceof fabric.IText) return false;
-  obj.setCoords();
-  const pts = Object.values(obj.aCoords);
-  const minX = Math.min(...pts.map((p) => p.x));
-  const maxX = Math.max(...pts.map((p) => p.x));
-  const minY = Math.min(...pts.map((p) => p.y));
-  const maxY = Math.max(...pts.map((p) => p.y));
-  const slack = 4;
-  return minX <= slack && minY <= slack && maxX >= width - slack && maxY >= height - slack;
-}
 
 interface PageCanvasProps {
   page: Page;
@@ -147,7 +135,10 @@ export function PageCanvas({ page, isActive, width, height, onActivate }: PageCa
     // Styled handles for everything; on images the side handles crop instead of stretching.
     const prepare = (obj: fabric.FabricObject) => {
       applyCustomControls(obj);
-      if (obj instanceof fabric.FabricImage) installEdgeCrop(obj);
+      // Fabric does not save selectable / evented, so re-lock the background on load.
+      if (isBgImage(obj)) lockBackground(obj);
+      else if (obj instanceof fabric.FabricImage) installEdgeCrop(obj);
+      restoreElementEdits(obj);
     };
     c.getObjects().forEach(prepare);
     c.on("object:added", (e) => {

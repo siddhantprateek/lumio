@@ -11,16 +11,16 @@ import {
   type EffectState,
   type ParamDef,
 } from "../lib/effects";
-import { thumbnailSource } from "../lib/image-filters";
+import { previewSource } from "../lib/image-filters";
 
 /** Small previews of the selected picture through every effect, built in batches. */
-function useEffectPreviews(img: fabric.FabricImage) {
+export function useEffectPreviews(img: fabric.FabricObject) {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
-  const src = img.getSrc();
+  const src = img instanceof fabric.FabricImage ? img.getSrc() : img;
   useEffect(() => {
     setThumbs({});
-    const data = thumbnailSource(img, 120);
-    if (!data) return;
+    // Flat shapes and plain backgrounds preview on a sample picture instead.
+    const data = previewSource(img, 120);
     const source = document.createElement("canvas");
     source.width = data.width;
     source.height = data.height;
@@ -62,7 +62,7 @@ function Thumb({ def, thumb, active, onClick }: { def: EffectDef; thumb?: string
 
 /** Every effect by category. Clicking one adds it to the image and opens its controls. */
 export function EffectsGallery({ img, effects, onAdd, onOpen, onBack }: {
-  img: fabric.FabricImage;
+  img: fabric.FabricObject;
   effects: EffectState[];
   onAdd: (id: string) => void;
   onOpen: (index: number) => void;
@@ -189,9 +189,14 @@ export function EffectDetail({ effect, onChange, onRemove, onBack }: {
 }
 
 /** The Effects block on the main Edit image screen: what is applied, plus Add. */
-export function EffectsSection({ effects, onSeeAll, onOpen, onToggle, onRemove }: {
+const FEATURED = ["grain", "light-leak", "halftone", "vhs", "rgb-split", "bloom"];
+
+export function EffectsSection({ img, effects, onSeeAll, onAdd, onClear, onOpen, onToggle, onRemove }: {
+  img: fabric.FabricObject;
   effects: EffectState[];
   onSeeAll: () => void;
+  onAdd: (id: string) => void;
+  onClear: () => void;
   onOpen: (index: number) => void;
   onToggle: (index: number) => void;
   onRemove: (index: number) => void;
@@ -202,8 +207,10 @@ export function EffectsSection({ effects, onSeeAll, onOpen, onToggle, onRemove }
         <h3 class="text-xs font-semibold text-zinc-700 m-0">Effects</h3>
         <button type="button" class="text-[11px] text-zinc-500 bg-transparent border-none p-0 cursor-pointer hover:text-zinc-900" onClick={onSeeAll}>See all</button>
       </div>
+      {/* Like the Filters row: None, then what is applied, then popular picks. */}
+      <EffectTiles img={img} effects={effects} onAdd={onAdd} onOpen={onOpen} onClear={onClear} />
       {effects.length > 0 && (
-        <ul class="list-none m-0 p-0 mb-2 flex flex-col gap-1">
+        <ul class="list-none m-0 p-0 mt-3 mb-2 flex flex-col gap-1">
           {effects.map((e, i) => {
             const def = findEffect(e.id);
             if (!def) return null;
@@ -227,11 +234,51 @@ export function EffectsSection({ effects, onSeeAll, onOpen, onToggle, onRemove }
           })}
         </ul>
       )}
-      <button type="button"
-        class="w-full flex items-center justify-center gap-1.5 h-9 rounded-md border border-dashed border-zinc-300 bg-transparent text-xs text-zinc-600 cursor-pointer hover:border-accent hover:text-accent"
-        onClick={onSeeAll}>
-        <Plus size={13} />Add effect — grain, light leak, glitch, halftone…
-      </button>
     </section>
   );
+}
+
+function EffectTiles({ img, effects, onAdd, onOpen, onClear }: {
+  img: fabric.FabricObject;
+  effects: EffectState[];
+  onAdd: (id: string) => void;
+  onOpen: (index: number) => void;
+  onClear: () => void;
+}) {
+  const thumbs = useEffectPreviews(img);
+  const none = useNonePreview(img);
+  const applied = effects.map((e) => e.id);
+  const ids = [...new Set([...applied, ...FEATURED])].slice(0, 3);
+  return (
+    <div class="grid grid-cols-4 gap-2">
+      <button type="button" title="No effects" aria-pressed={effects.length === 0}
+        class="flex flex-col items-center gap-1 bg-transparent border-none p-0 cursor-pointer group" onClick={onClear}>
+        <span class={`w-full aspect-square rounded-lg overflow-hidden border-2 ${effects.length === 0 ? "border-accent" : "border-transparent group-hover:border-zinc-300"}`}>
+          {none ? <img src={none} alt="" class="w-full h-full object-cover block" /> : <span class="block w-full h-full bg-zinc-100" />}
+        </span>
+        <span class="text-[11px] text-zinc-600">None</span>
+      </button>
+      {ids.map((id) => {
+        const def = findEffect(id);
+        if (!def) return null;
+        const index = effects.findIndex((e) => e.id === id);
+        return <Thumb key={id} def={def} thumb={thumbs[id]} active={index >= 0} onClick={() => (index >= 0 ? onOpen(index) : onAdd(id))} />;
+      })}
+    </div>
+  );
+}
+
+/** The picture with no effects, for the "None" tile. */
+function useNonePreview(img: fabric.FabricObject) {
+  const [url, setUrl] = useState<string | null>(null);
+  const src = img instanceof fabric.FabricImage ? img.getSrc() : img;
+  useEffect(() => {
+    const data = previewSource(img, 120);
+    const c = document.createElement("canvas");
+    c.width = data.width;
+    c.height = data.height;
+    c.getContext("2d")!.putImageData(data, 0, 0);
+    setUrl(c.toDataURL("image/jpeg", 0.8));
+  }, [src]);
+  return url;
 }

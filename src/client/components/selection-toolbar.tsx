@@ -5,6 +5,7 @@ import { useEditor } from "../context";
 import { duplicateObject, isLocked, lockProps } from "../lib/object-actions";
 import { OPEN_CONTEXT_MENU, type ContextMenuDetail } from "./object-context-menu";
 import { useCropSession } from "../lib/crop";
+import { isBgImage } from "../lib/background";
 
 const GAP = 44; // px between the element's top edge and the bar
 
@@ -68,7 +69,7 @@ export function SelectionToolbar() {
     return () => cancelAnimationFrame(frame);
   }, [canvas, selectedObject]);
 
-  if (!canvas || !selectedObject || !pos || transforming || cropping) return null;
+  if (!canvas || !selectedObject || !pos || transforming || cropping || isBgImage(selectedObject)) return null;
   const locked = isLocked(selectedObject);
   const item = "p-1.5 rounded-md bg-transparent border-none text-zinc-600 cursor-pointer hover:bg-zinc-100 hover:text-zinc-900 flex";
 

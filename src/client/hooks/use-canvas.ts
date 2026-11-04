@@ -8,6 +8,7 @@ import { cutOutSubject } from "../lib/cutout";
 import { installTextBehind, linkCutout, syncCutout, unlinkCutout } from "../lib/text-behind";
 import { ensureCanvasFonts } from "../lib/google-fonts";
 import { cancelCrop, isCropping, serializeCanvas } from "../lib/crop";
+import { bakeBackground, findBackdropShape, findBgImage, placeBackgroundImage } from "../lib/background";
 import { downloadDataURL, exportPagesToPDF, renderPageToPNG, slugify } from "../lib/export";
 
 const MAX_HISTORY = 50;
@@ -301,23 +302,43 @@ export function useCanvasState(onChange: () => void = () => {}) {
         canvas.requestRenderAll();
         saveHistory(pageId);
       } else if (type === "image") {
-        fabric.FabricImage.fromURL(value, { crossOrigin: "anonymous" }).then((img) => {
-          const scaleX = canvasWidth / (img.width || 1);
-          const scaleY = canvasHeight / (img.height || 1);
-          img.set({ left: 0, top: 0, scaleX, scaleY, selectable: false, evented: false });
-          const objects = canvas.getObjects();
-          const bgObj = objects.find((o) => (o as any)._isBgImage);
-          if (bgObj) canvas.remove(bgObj);
-          (img as any)._isBgImage = true;
-          canvas.add(img);
-          canvas.sendObjectToBack(img);
-          canvas.requestRenderAll();
-          saveHistory(pageId);
-        });
+        // Covers the page without stretching, locked in place.
+        void placeBackgroundImage(canvas, value, canvasWidth, canvasHeight).then(() => saveHistory(pageId));
       }
     },
     [getActiveCanvas, canvasWidth, canvasHeight, saveHistory]
   );
+
+  /**
+   * Selects the page's background image so the Edit image panel can work on
+   * it. A colour or gradient background is first turned into an image, so it
+   * can take filters and effects (grain on a gradient, and so on).
+   */
+  const editBackground = useCallback(async (): Promise<fabric.FabricObject | null> => {
+    const canvas = getActiveCanvas();
+    if (!canvas) return null;
+    let bg: fabric.FabricObject | undefined = findBgImage(canvas);
+    // Templates draw the background as a full-page shape; edit that directly.
+    if (!bg) bg = findBackdropShape(canvas, canvasWidth, canvasHeight);
+    if (!bg) {
+      const url = await bakeBackground(canvas, canvasWidth, canvasHeight);
+      bg = await placeBackgroundImage(canvas, url, canvasWidth, canvasHeight);
+    }
+    canvas.setActiveObject(bg);
+    canvas.requestRenderAll();
+    return bg;
+  }, [getActiveCanvas, canvasWidth, canvasHeight]);
+
+  /** Drops the background image; the page's colour or gradient shows again. */
+  const removeBackgroundImage = useCallback(() => {
+    const canvas = getActiveCanvas();
+    if (!canvas) return;
+    const bg = findBgImage(canvas);
+    if (!bg) return;
+    canvas.discardActiveObject();
+    canvas.remove(bg);
+    canvas.requestRenderAll();
+  }, [getActiveCanvas]);
 
   // ── Cut-outs ────────────────────────────────────────────────────────
 
@@ -770,6 +791,8 @@ export function useCanvasState(onChange: () => void = () => {}) {
     addShape,
     addImage,
     setBackground,
+    editBackground,
+    removeBackgroundImage,
     removeBackground,
     removeTextBehind,
     cutoutBusy,

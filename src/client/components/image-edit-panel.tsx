@@ -14,7 +14,7 @@ import {
   autoAdjust,
   lookOf,
   renderThumbnail,
-  thumbnailSource,
+  previewSource,
   type Adjustments,
   type Look,
   type LookState,
@@ -28,14 +28,14 @@ type View = "main" | "filters" | "adjust" | "effects" | "effect";
  * Thumbnails of the selected image through every look. Rendered once per
  * image in small batches, so opening the gallery does not freeze the page.
  */
-function useLookThumbnails(img: fabric.FabricImage, enabled: boolean) {
+function useLookThumbnails(img: fabric.FabricObject, enabled: boolean) {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
-  const src = img.getSrc();
+  const src = img instanceof fabric.FabricImage ? img.getSrc() : img;
   useEffect(() => {
     setThumbs({});
     if (!enabled) return;
-    const source = thumbnailSource(img);
-    if (!source) return;
+    // Flat shapes and plain backgrounds preview on a sample picture instead.
+    const source = previewSource(img);
     const looks: { id: string; matrix: number[]; pop?: Look["pop"] }[] = [{ id: "none", matrix: IDENTITY }, ...LOOK_CATEGORIES.flatMap((c) => c.looks)];
     let i = 0;
     let cancelled = false;
@@ -94,7 +94,8 @@ function Slider({ label, value, min, max, onChange, track }: {
 /** Canva's "Edit image" drawer: tools, filters with intensity, adjustments and shadows. */
 export function ImageEditPanel() {
   const { canvas, selectedObject, updateSelectedObject, removeBackground, removeTextBehind, cutoutBusy } = useEditor();
-  const img = selectedObject as fabric.FabricImage;
+  const img = selectedObject as fabric.FabricObject;
+  const isPhoto = img instanceof fabric.FabricImage && !(img as { _isBgImage?: boolean })._isBgImage;
   const [view, setView] = useState<View>("main");
   const thumbs = useLookThumbnails(img, true);
   const current = lookOf(img);
@@ -108,7 +109,7 @@ export function ImageEditPanel() {
   useEffect(() => () => window.clearTimeout(commitTimer.current), []);
   const [, rerender] = useState(0);
   const apply = (state: LookState | undefined, adj: Adjustments, fx: EffectState[] = effects) => {
-    const cutout = canvas ? (findCutout(canvas, img) as fabric.FabricImage | undefined) : undefined;
+    const cutout = canvas ? findCutout(canvas, img) : undefined;
     applyEdits(img, state, adj, cutout, fx);
     canvas?.requestRenderAll();
     rerender((n) => n + 1);
@@ -145,7 +146,7 @@ export function ImageEditPanel() {
   const currentLook = allLooks.find((l) => l.id === current?.id);
 
   const intensity = current && (
-    <div class="sticky top-0 z-10 bg-white pb-3 mb-1 border-b border-zinc-200">
+    <div class="mt-3 pt-3 border-t border-zinc-200">
       <p class="text-xs font-semibold text-zinc-700 mb-2 m-0">{currentLook?.name ?? "Filter"}</p>
       <Slider label="Intensity" min={0} max={100} value={current.intensity}
         onChange={(intensity) => apply({ ...current, intensity }, adjust)} />
@@ -184,7 +185,6 @@ export function ImageEditPanel() {
           onClick={() => setView("main")}>
           <ArrowLeft size={16} />Filters
         </button>
-        {intensity}
         {LOOK_CATEGORIES.map((cat) => (
           <section key={cat.name} class="mb-4">
             <h3 class="text-xs font-semibold text-zinc-700 mb-2 m-0">{cat.name}</h3>
@@ -193,6 +193,7 @@ export function ImageEditPanel() {
                 <Tile key={l.id} label={l.name} thumb={thumbs[l.id]} selected={current?.id === l.id} onClick={() => pick(l)} />
               ))}
             </div>
+            {cat.looks.some((l) => l.id === current?.id) && intensity}
           </section>
         ))}
         <button type="button" disabled={!current}
@@ -283,13 +284,13 @@ export function ImageEditPanel() {
           <button type="button" class={tool} onClick={() => setView("adjust")}>
             <span class={toolIcon}><SlidersHorizontal size={18} /></span>Adjust
           </button>
-          <button type="button" class={tool} disabled={cutoutBusy} onClick={() => removeBackground(false)}>
+          {isPhoto && <button type="button" class={tool} disabled={cutoutBusy} onClick={() => removeBackground(false)}>
             <span class={toolIcon}><Scissors size={18} /></span>{cutoutBusy ? "Working…" : "BG Remover"}
-          </button>
-          <button type="button" class={tool} disabled={cutoutBusy && !linked} onClick={() => (linked ? removeTextBehind() : removeBackground(true))}>
+          </button>}
+          {isPhoto && <button type="button" class={tool} disabled={cutoutBusy && !linked} onClick={() => (linked ? removeTextBehind() : removeBackground(true))}>
             <span class={`${toolIcon} ${linked ? "border-accent text-accent bg-accent/10" : ""}`}><Layers size={18} /></span>
             {linked ? "Text behind: on" : "Text behind"}
-          </button>
+          </button>}
         </div>
       </section>
 
@@ -298,17 +299,20 @@ export function ImageEditPanel() {
           <h3 class="text-xs font-semibold text-zinc-700 m-0">Filters</h3>
           {seeAll("filters")}
         </div>
-        {current && <div class="mb-3">{intensity}</div>}
+
         <div class="grid grid-cols-4 gap-2">
           <Tile label="None" thumb={thumbs.none} selected={!current} onClick={() => pick(null)} />
           {(currentLook && !featured.includes(currentLook) ? [currentLook, ...featured.slice(0, 2)] : featured).map((l) => (
             <Tile key={l.id} label={l.name} thumb={thumbs[l.id]} selected={current?.id === l.id} onClick={() => pick(l)} />
           ))}
         </div>
+        {intensity}
       </section>
 
-      <EffectsSection effects={effects}
+      <EffectsSection img={img} effects={effects}
         onSeeAll={() => setView("effects")}
+        onAdd={addEffect}
+        onClear={() => setEffects([])}
         onOpen={(i) => { setFxIndex(i); setView("effect"); }}
         onToggle={(i) => setEffects(effects.map((e, j) => (j === i ? { ...e, enabled: e.enabled === false } : e)))}
         onRemove={(i) => setEffects(effects.filter((_, j) => j !== i))} />

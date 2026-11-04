@@ -1,4 +1,4 @@
-import { useRef } from "preact/hooks";
+import { useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 import * as fabric from "fabric";
 import {
@@ -25,6 +25,7 @@ import {
   MoveHorizontal,
   Wand2,
   Crop,
+  ImageOff,
   Check,
   X,
   RotateCcw,
@@ -33,9 +34,12 @@ import { useEditor } from "../context";
 import { FontPicker } from "./font-picker";
 import { FontSizeInput } from "./font-size-input";
 import { FillEditor, BrandSwatches } from "./right-sidebar";
+import { GradientControls } from "./gradient-controls";
+import { findBackdropShape, findBgImage, isBgImage } from "../lib/background";
+import { buildObjectGradient } from "../lib/gradient";
 import { Popover, useCanvasTick, useEditorUI } from "./editor-ui";
 import { hasTextBehind } from "../lib/text-behind";
-import { specToCss, gradientToSpec } from "../lib/gradient";
+import { specToCss, gradientToSpec, type GradientSpec } from "../lib/gradient";
 import {
   cancelCrop, commitCrop, cropBlockedReason, resetCrop, setCropRatio, setCropZoom, startCrop, useCropSession,
 } from "../lib/crop";
@@ -300,8 +304,11 @@ function TextBar() {
       </Popover>
       <Transparency />
       <Sep />
-      <Btn title="Effects" on={panel === "effects"} onClick={() => setPanel(panel === "effects" ? null : "effects")}>
-        <Sparkles size={14} />Effects
+      <Btn title="Edit: filters, adjust and effects" on={panel === "edit-image"} onClick={() => setPanel(panel === "edit-image" ? null : "edit-image")}>
+        <Wand2 size={14} />Edit
+      </Btn>
+      <Btn title="Shadow, rotation and tilt" on={panel === "effects"} onClick={() => setPanel(panel === "effects" ? null : "effects")}>
+        <Sparkles size={14} />Shadow & tilt
       </Btn>
       <PositionButton />
     </>
@@ -310,13 +317,175 @@ function TextBar() {
 
 function ShapeBar() {
   const { selectedObject } = useEditor();
+  const { panel, setPanel } = useEditorUI();
+  const single = !(selectedObject instanceof fabric.ActiveSelection);
   return (
     <>
+      {single && (
+        <>
+          <Btn title="Edit: filters, adjust and effects" on={panel === "edit-image"} onClick={() => setPanel(panel === "edit-image" ? null : "edit-image")}>
+            <Wand2 size={14} />Edit
+          </Btn>
+          <Sep />
+        </>
+      )}
       <FillSwatch label="Colour" solidDefault="#6366f1" />
       <BorderControls rounding={selectedObject instanceof fabric.Rect} />
       <Transparency />
       <Sep />
       <PositionButton />
+    </>
+  );
+}
+
+const PAGE_COLORS = [
+  "#ffffff", "#f8fafc", "#fef3c7", "#fde2e4", "#e0f2fe", "#dcfce7",
+  "#18181b", "#0f172a", "#1e1b4b", "#7c3aed", "#2563eb", "#e11d48",
+];
+
+/** Page colour: solid or gradient. Choosing one drops a background image, as in Canva. */
+function PageColour() {
+  const { canvas, setBackground, removeBackgroundImage, canvasWidth, canvasHeight } = useEditor();
+  // A template's full-page shape is the visible background; colour that instead.
+  const backdrop = canvas ? findBackdropShape(canvas, canvasWidth, canvasHeight) : undefined;
+  const bg = backdrop ? backdrop.fill : canvas?.backgroundColor;
+  const spec = gradientToSpec(bg);
+  const solid = typeof bg === "string" && bg ? bg : "#ffffff";
+  const hasImage = !!(canvas && findBgImage(canvas));
+  const swatch = spec ? specToCss(spec) : solid;
+  const [mode, setMode] = useState<"solid" | "gradient">(spec ? "gradient" : "solid");
+  const [draft, setDraft] = useState<GradientSpec>(spec ?? { from: "#667eea", to: "#764ba2", angle: 135 });
+
+  const paintBackdrop = (fill: string | fabric.Gradient<"linear">) => {
+    if (!canvas || !backdrop) return;
+    backdrop.set({ fill, dirty: true });
+    canvas.requestRenderAll();
+    canvas.fire("object:modified", { target: backdrop } as never);
+  };
+  const setSolid = (c: string) => {
+    if (hasImage) removeBackgroundImage();
+    if (backdrop) paintBackdrop(c);
+    else setBackground("color", c);
+  };
+  const setGradient = (g: GradientSpec) => {
+    setDraft(g);
+    if (hasImage) removeBackgroundImage();
+    if (backdrop) paintBackdrop(buildObjectGradient(g));
+    else setBackground("gradient", specToCss(g));
+  };
+
+  return (
+    <Popover width="w-72" trigger={(open, toggle) => (
+      <Btn title="Background colour" on={open} onClick={toggle}>
+        <span class="w-5 h-5 rounded-full border border-zinc-300" style={{ background: swatch }} />
+      </Btn>
+    )}>
+      <div class="flex gap-1 mb-3" role="group" aria-label="Background type">
+        {(["solid", "gradient"] as const).map((m) => (
+          <button key={m} type="button" aria-pressed={mode === m}
+            class={`flex-1 py-1 rounded-md border text-xs cursor-pointer capitalize ${mode === m ? "bg-accent/20 border-accent text-accent" : "bg-transparent border-zinc-300 text-zinc-500 hover:text-zinc-900"}`}
+            onClick={() => {
+              setMode(m);
+              if (m === "gradient") setGradient(spec ?? draft);
+            }}>{m}</button>
+        ))}
+      </div>
+      {mode === "solid" ? (
+        <div class="flex flex-col gap-2">
+          <div class="grid grid-cols-6 gap-1.5">
+            {PAGE_COLORS.map((c) => (
+              <button key={c} type="button" title={c} aria-label={`Background ${c}`}
+                class={`aspect-square rounded-md border cursor-pointer hover:scale-110 transition-all ${solid.toLowerCase() === c && !spec ? "border-accent" : "border-zinc-300"}`}
+                style={{ background: c }} onClick={() => setSolid(c)} />
+            ))}
+          </div>
+          <input type="color" aria-label="Custom background colour" class="w-full h-8 rounded border border-zinc-300 cursor-pointer bg-transparent"
+            value={solid} onInput={(e) => setSolid((e.target as HTMLInputElement).value)} />
+          <BrandSwatches onPick={setSolid} />
+        </div>
+      ) : (
+        <GradientControls spec={spec ?? draft} onChange={setGradient} />
+      )}
+      {hasImage && (
+        <p class="text-[10px] text-zinc-400 mt-2 mb-0">Picking a colour replaces the background image.</p>
+      )}
+    </Popover>
+  );
+}
+
+/** Upload → page background image. */
+function ReplaceBackground({ label }: { label: string }) {
+  const { setBackground } = useEditor();
+  const file = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <Btn title="Background image" onClick={() => file.current?.click()}><Replace size={14} />{label}</Btn>
+      <input ref={file} type="file" accept="image/*" class="hidden" aria-label="Background image file"
+        onChange={async (e) => {
+          const f = e.currentTarget.files?.[0];
+          e.currentTarget.value = "";
+          if (!f) return;
+          const form = new FormData();
+          form.append("file", f);
+          const res = await fetch("/api/uploads", { method: "POST", body: form });
+          const data = await res.json();
+          if (data.url) setBackground("image", data.url);
+        }} />
+    </>
+  );
+}
+
+/** Nothing selected = the page is selected, as in Canva. */
+function PageBar() {
+  const { canvas, editBackground } = useEditor();
+  const { setPanel } = useEditorUI();
+  const [busy, setBusy] = useState(false);
+  const hasImage = !!(canvas && findBgImage(canvas));
+  return (
+    <>
+      <Btn title="Edit the page background: filters, adjust, effects" disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            if (await editBackground()) setPanel("edit-image");
+          } finally {
+            setBusy(false);
+          }
+        }}>
+        <Wand2 size={14} />{busy ? "Preparing…" : "Edit"}
+      </Btn>
+      <Sep />
+      <ReplaceBackground label={hasImage ? "Replace" : "Add image"} />
+      <PageColour />
+      <Sep />
+      <PositionButton />
+    </>
+  );
+}
+
+/** The background image is being edited (it cannot be moved or resized). */
+function BackgroundBar() {
+  const { canvas, removeBackgroundImage } = useEditor();
+  const { panel, setPanel } = useEditorUI();
+  return (
+    <>
+      <span class="flex items-center gap-1.5 px-2 text-xs font-semibold text-zinc-800">Background</span>
+      <Sep />
+      <Btn title="Edit background" on={panel === "edit-image"} onClick={() => setPanel(panel === "edit-image" ? null : "edit-image")}>
+        <Wand2 size={14} />Edit
+      </Btn>
+      <ReplaceBackground label="Replace" />
+      <PageColour />
+      <Btn title="Remove background image" onClick={() => { setPanel(null); removeBackgroundImage(); }}>
+        <ImageOff size={14} />Remove image
+      </Btn>
+      <Sep />
+      <Transparency />
+      <button type="button" title="Done editing the background"
+        class="flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-medium border-none bg-accent text-[#ffffff] cursor-pointer hover:bg-accent-hover"
+        onClick={() => { setPanel(null); canvas?.discardActiveObject(); canvas?.requestRenderAll(); }}>
+        <Check size={14} />Done
+      </button>
     </>
   );
 }
@@ -383,11 +552,14 @@ export function ContextToolbar() {
       ) : selectedObject ? (
         <div role="toolbar" aria-label="Element tools"
           class="flex items-center gap-0.5 px-1.5 py-1 bg-white border border-zinc-200 rounded-lg shadow-sm max-w-full overflow-visible flex-wrap">
-          {isImage ? <ImageBar /> : isText ? <TextBar /> : <ShapeBar />}
+          {isBgImage(selectedObject) ? <BackgroundBar /> : isImage ? <ImageBar /> : isText ? <TextBar /> : <ShapeBar />}
         </div>
-      ) : (
-        <p class="text-[11px] text-zinc-400 m-0">Select an element to edit it</p>
-      )}
+      ) : canvas ? (
+        <div role="toolbar" aria-label="Page tools"
+          class="flex items-center gap-0.5 px-1.5 py-1 bg-white border border-zinc-200 rounded-lg shadow-sm max-w-full overflow-visible flex-wrap">
+          <PageBar />
+        </div>
+      ) : null}
     </div>
   );
 }
