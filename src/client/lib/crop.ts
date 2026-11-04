@@ -328,9 +328,11 @@ function end(committed: boolean, reselect = true) {
   s.detach();
   const { canvas, image, ghost, preview, frame, cutout } = s;
   canvas.uniformScaling = s.wasUniform;
-  canvas.remove(ghost, preview, frame);
+  // Visible again BEFORE removing the temp layers: removal saves a history
+  // step, which must not capture the photo hidden.
   image.visible = true;
   if (cutout) cutout.visible = true;
+  canvas.remove(ghost, preview, frame);
 
   if (committed) {
     const f = frameBox(frame);

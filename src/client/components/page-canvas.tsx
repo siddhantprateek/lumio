@@ -1,7 +1,8 @@
 import { ensureCanvasFonts } from "../lib/google-fonts";
 import { OPEN_CONTEXT_MENU, type ContextMenuDetail } from "./object-context-menu";
 import { IMPORT_EVENT, readDataTransfer, type ImportDetail } from "../lib/clipboard-import";
-import { isCropping } from "../lib/crop";
+import { cropBlockedReason, isCropping, startCrop } from "../lib/crop";
+import { installEdgeCrop } from "../lib/edge-crop";
 import { useRef, useEffect, useState } from "preact/hooks";
 import * as fabric from "fabric";
 import { useEditor } from "../context";
@@ -143,12 +144,22 @@ export function PageCanvas({ page, isActive, width, height, onActivate }: PageCa
       }
     };
 
-    // Apply to all existing objects
-    c.getObjects().forEach(applyCustomControls);
-
-    // Apply to any newly added objects
+    // Styled handles for everything; on images the side handles crop instead of stretching.
+    const prepare = (obj: fabric.FabricObject) => {
+      applyCustomControls(obj);
+      if (obj instanceof fabric.FabricImage) installEdgeCrop(obj);
+    };
+    c.getObjects().forEach(prepare);
     c.on("object:added", (e) => {
-      if (e.target) applyCustomControls(e.target);
+      if (e.target) prepare(e.target);
+    });
+
+    // Double-click an image to open crop mode, as in Canva.
+    c.on("mouse:dblclick", (opt) => {
+      const t = opt.target;
+      if (t instanceof fabric.FabricImage && t.selectable && !isCropping(c) && !cropBlockedReason(t)) {
+        void startCrop(c, t, () => {});
+      }
     });
 
     // Load page content
