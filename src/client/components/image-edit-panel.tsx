@@ -23,7 +23,7 @@ import { defaultValues, findEffect, type EffectState } from "../lib/effects";
 import { EffectDetail, EffectsGallery, EffectsSection } from "./effects-panel";
 import { backdropBlurOf } from "../lib/element-effects";
 
-type View = "main" | "filters" | "adjust" | "effects" | "effect";
+type View = "main" | "filters" | "adjust" | "effects" | "magic" | "effect";
 
 /**
  * Thumbnails of the selected image through every look. Rendered once per
@@ -126,6 +126,19 @@ export function ImageEditPanel() {
     setFxIndex(effects.length);
     setView("effect");
   };
+  const isMagic = (id: string) => !!findEffect(id)?.magic;
+  const sectionProps = (magic: boolean) => ({
+    img,
+    effects,
+    magic,
+    onSeeAll: () => setView(magic ? "magic" : "effects"),
+    onAdd: addEffect,
+    // "None" clears only this section's effects.
+    onClear: () => setEffects(effects.filter((e) => isMagic(e.id) !== magic)),
+    onOpen: (i: number) => { setFxIndex(i); setView("effect"); },
+    onToggle: (i: number) => setEffects(effects.map((e, j) => (j === i ? { ...e, enabled: e.enabled === false } : e))),
+    onRemove: (i: number) => setEffects(effects.filter((_, j) => j !== i)),
+  });
 
   const pick = (look: Look | null) => {
     if (!look) return apply(undefined, adjust);
@@ -168,8 +181,15 @@ export function ImageEditPanel() {
     </div>
   );
 
-  if (view === "effects") {
-    return <EffectsGallery img={img} effects={effects} onAdd={addEffect}
+  if (view === "effects" || view === "magic") {
+    return <EffectsGallery img={img} effects={effects} onAdd={addEffect} magic={view === "magic"}
+      onRecipe={(rc) => {
+        // A recipe replaces this picture's magic look: drop its old magic effects and any finishing effects the recipe brings.
+        const ids = new Set(rc.stack.map((s) => s.id));
+        const kept = effects.filter((e) => !isMagic(e.id) && !ids.has(e.id));
+        setEffects([...kept, ...rc.stack.map((s) => ({ id: s.id, values: { ...defaultValues(findEffect(s.id)!), ...s.values } }))]);
+        setView("main");
+      }}
       onOpen={(i) => { setFxIndex(i); setView("effect"); }} onBack={() => setView("main")} />;
   }
 
@@ -177,7 +197,7 @@ export function ImageEditPanel() {
     return <EffectDetail effect={effects[fxIndex]}
       onChange={(next) => setEffects(effects.map((e, i) => (i === fxIndex ? next : e)))}
       onRemove={() => { setEffects(effects.filter((_, i) => i !== fxIndex)); setView("main"); }}
-      onBack={() => setView("effects")} />;
+      onBack={() => setView(isMagic(effects[fxIndex].id) ? "magic" : "effects")} />;
   }
 
   if (view === "filters") {
@@ -311,13 +331,9 @@ export function ImageEditPanel() {
         {intensity}
       </section>
 
-      <EffectsSection img={img} effects={effects}
-        onSeeAll={() => setView("effects")}
-        onAdd={addEffect}
-        onClear={() => setEffects([])}
-        onOpen={(i) => { setFxIndex(i); setView("effect"); }}
-        onToggle={(i) => setEffects(effects.map((e, j) => (j === i ? { ...e, enabled: e.enabled === false } : e)))}
-        onRemove={(i) => setEffects(effects.filter((_, j) => j !== i))} />
+      <EffectsSection {...sectionProps(true)} />
+
+      <EffectsSection {...sectionProps(false)} />
 
       {isShape && (
         <section>

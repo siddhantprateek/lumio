@@ -1,4 +1,6 @@
 import * as fabric from "fabric";
+import { MAGIC_EFFECTS } from "./magic-effects";
+import { glyphAtlas } from "./glyph-atlas";
 
 /*
  * Photo effects (grain, light leaks, glitch, blur, halftone, distortions…).
@@ -14,7 +16,8 @@ import * as fabric from "fabric";
  * picture shows unchanged rather than breaking.
  */
 
-export type ParamKind = "range" | "color" | "select";
+/** "text" takes no shader slot: it is the custom character set of text looks. */
+export type ParamKind = "range" | "color" | "select" | "text";
 
 export interface ParamDef {
   key: string;
@@ -27,6 +30,8 @@ export interface ParamDef {
   /** For selects. */
   options?: { label: string; value: number }[];
   unit?: string;
+  /** Starts a new labelled group of controls in the panel. */
+  section?: string;
 }
 
 export interface EffectDef {
@@ -41,7 +46,30 @@ export interface EffectDef {
    * long side (blurs). Shapes and text get that much room in their cache.
    */
   spread?: (values: Record<string, number | string>) => number;
+  /** Extra GLSL functions, placed before main(). */
+  fns?: string;
+  /** Samples the glyph atlas (`uAtlas`, see glyph-atlas.ts). */
+  atlas?: boolean;
+  /** Listed under Magic Effects rather than Effects. */
+  magic?: boolean;
+  /** Ready-made settings, shown as chips above the controls. */
+  presets?: { name: string; values: Record<string, number | string> }[];
+  /** Overrides for the gallery thumbnail, which is tiny (e.g. fewer ASCII columns). */
+  preview?: Record<string, number | string>;
+  /** One line shown on hover in the gallery. */
+  desc?: string;
 }
+
+/**
+ * A Magic Effect entry. Either a full effect, or a variant (`alias`) that
+ * reuses another effect's shader with its own name and default settings.
+ */
+export type MagicDef = Omit<EffectDef, "glsl" | "params"> & {
+  glsl?: string;
+  params?: ParamDef[];
+  alias?: string;
+  overrides?: Record<string, number | string>;
+};
 
 export interface EffectState {
   id: string;
@@ -64,7 +92,9 @@ const HEADER = `
   uniform sampler2D uTexture;
   uniform float uStepW;
   uniform float uStepH;
-  uniform float uP[12];
+  uniform vec4 uP[8];
+  uniform sampler2D uAtlas;
+  uniform float uCustom;
   varying vec2 vTexCoord;
 
   vec2 px;   // one pixel, in uv
@@ -107,15 +137,18 @@ const HEADER = `
   }
 `;
 
-function program(body: string) {
+function program(body: string, fns = "") {
   return `${HEADER}
+  ${fns}
   void main() {
     px = vec2(uStepW, uStepH);
     res = 1.0 / px;
     aspect = res.x / res.y;
     S = vec2(max(res.x, res.y)) / res;
-    float p0 = uP[0], p1 = uP[1], p2 = uP[2], p3 = uP[3], p4 = uP[4], p5 = uP[5];
-    float p6 = uP[6], p7 = uP[7], p8 = uP[8], p9 = uP[9], p10 = uP[10], p11 = uP[11];
+    float p0 = uP[0].x, p1 = uP[0].y, p2 = uP[0].z, p3 = uP[0].w, p4 = uP[1].x, p5 = uP[1].y, p6 = uP[1].z, p7 = uP[1].w;
+    float p8 = uP[2].x, p9 = uP[2].y, p10 = uP[2].z, p11 = uP[2].w, p12 = uP[3].x, p13 = uP[3].y, p14 = uP[3].z, p15 = uP[3].w;
+    float p16 = uP[4].x, p17 = uP[4].y, p18 = uP[4].z, p19 = uP[4].w, p20 = uP[5].x, p21 = uP[5].y, p22 = uP[5].z, p23 = uP[5].w;
+    float p24 = uP[6].x, p25 = uP[6].y, p26 = uP[6].z, p27 = uP[6].w, p28 = uP[7].x, p29 = uP[7].y, p30 = uP[7].z, p31 = uP[7].w;
     vec2 uv = vTexCoord;
     vec4 src = texture2D(uTexture, uv);
     vec4 o = src;
@@ -127,7 +160,7 @@ function program(body: string) {
 // ── The catalogue ──────────────────────────────────────────────────────
 // Param order = p0, p1, … ; a colour takes three slots (r, g, b).
 
-export const EFFECTS: EffectDef[] = [
+const BASE_EFFECTS: EffectDef[] = [
   // Layer: made for shapes, text and graphics (work on photos too)
   { id: "layer-blur", name: "Layer blur", category: "Layer", params: [
       r("radius", "Blur", 0, 15, 3, 0.1, "%")],
@@ -651,7 +684,33 @@ export const EFFECTS: EffectDef[] = [
       o.rgb = mix(c, vec3(1.0), p2 / 100.0 * 0.35);` },
 ];
 
-export const EFFECT_CATEGORIES = [...new Set(EFFECTS.map((e) => e.category))];
+/** Turns the Magic catalogue into full effects, filling variants from the effect they reuse. */
+function resolveMagic(defs: MagicDef[]): EffectDef[] {
+  const pool = new Map<string, EffectDef>(BASE_EFFECTS.map((e) => [e.id, e]));
+  for (const m of defs) if (!m.alias) pool.set(m.id, { ...(m as EffectDef), magic: true });
+  return defs.map((m) => {
+    if (!m.alias) return pool.get(m.id)!;
+    const from = pool.get(m.alias);
+    if (!from) throw new Error(`Magic effect ${m.id} reuses unknown effect ${m.alias}`);
+    const { alias: _a, overrides = {}, ...rest } = m;
+    return {
+      ...from,
+      presets: undefined,
+      preview: undefined,
+      ...rest,
+      params: from.params.map((p) => (p.key in overrides ? { ...p, default: overrides[p.key] } : p)),
+      glsl: from.glsl,
+      fns: from.fns,
+      magic: true,
+    };
+  });
+}
+
+const MAGIC = resolveMagic(MAGIC_EFFECTS);
+
+export const EFFECTS: EffectDef[] = [...BASE_EFFECTS, ...MAGIC];
+export const EFFECT_CATEGORIES = [...new Set(BASE_EFFECTS.map((e) => e.category))];
+export const MAGIC_CATEGORIES = [...new Set(MAGIC.map((e) => e.category))];
 const BY_ID = new Map(EFFECTS.map((e) => [e.id, e]));
 export const findEffect = (id: string) => BY_ID.get(id);
 
@@ -664,27 +723,33 @@ const hexToRgb = (hex: string): [number, number, number] => {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 };
 
-/** Values → the 12 shader slots, in param order (colours take three). */
+const SLOTS = 32;
+
+/** Values → the shader slots, in param order (colours take three, text none). */
 export function packParams(def: EffectDef, values: Record<string, number | string>): number[] {
   const out: number[] = [];
   for (const p of def.params) {
     const v = values[p.key] ?? p.default;
+    if (p.kind === "text") continue;
     if (p.kind === "color") out.push(...hexToRgb(String(v)));
     else out.push(Number(v));
   }
-  while (out.length < 12) out.push(0);
-  return out.slice(0, 12);
+  if (out.length > SLOTS) console.warn(`Effect ${def.id} has more than ${SLOTS} shader slots`);
+  while (out.length < SLOTS) out.push(0);
+  return out.slice(0, SLOTS);
 }
 
 // ── Fabric filter ──────────────────────────────────────────────────────
 
-export class LumioEffect extends fabric.filters.BaseFilter<"LumioEffect", { effect: string; p: number[] }> {
+export class LumioEffect extends fabric.filters.BaseFilter<"LumioEffect", { effect: string; p: number[]; chars: string }> {
   declare effect: string;
   declare p: number[];
+  /** Custom character set for text looks ("" = use the chosen set). */
+  declare chars: string;
 
   static type = "LumioEffect";
-  static defaults: Record<string, unknown> = { effect: "grain", p: new Array(12).fill(0) };
-  static uniformLocations = ["uP"];
+  static defaults: Record<string, unknown> = { effect: "grain", p: new Array(SLOTS).fill(0), chars: "" };
+  static uniformLocations = ["uP", "uAtlas", "uCustom"];
 
   getCacheKey() {
     return `LumioEffect:${this.effect}`;
@@ -692,11 +757,26 @@ export class LumioEffect extends fabric.filters.BaseFilter<"LumioEffect", { effe
 
   getFragmentSource() {
     const def = findEffect(this.effect);
-    return program(def ? def.glsl : "");
+    return program(def ? def.glsl : "", def?.fns);
+  }
+
+  applyToWebGL(options: fabric.TWebGLPipelineState) {
+    const gl = options.context;
+    const atlas = findEffect(this.effect)?.atlas;
+    if (atlas) {
+      const backend = options.filterBackend as unknown as { getCachedTexture: (k: string, s: HTMLCanvasElement, f?: number) => WebGLTexture | null };
+      const { key, canvas } = glyphAtlas(this.chars || "");
+      this.bindAdditionalTexture(gl, backend.getCachedTexture(key, canvas, gl.LINEAR)!, gl.TEXTURE1);
+    }
+    super.applyToWebGL(options);
+    if (atlas) this.unbindAdditionalTexture(gl, gl.TEXTURE1);
   }
 
   sendUniformData(gl: WebGLRenderingContext, u: fabric.TWebGLUniformLocationMap) {
-    gl.uniform1fv(u.uP, new Float32Array(this.p.length === 12 ? this.p : [...this.p, ...new Array(12).fill(0)].slice(0, 12)));
+    const p = this.p.length === SLOTS ? this.p : [...this.p, ...new Array(SLOTS).fill(0)].slice(0, SLOTS);
+    gl.uniform4fv(u.uP, new Float32Array(p));
+    gl.uniform1i(u.uAtlas, 1);
+    gl.uniform1f(u.uCustom, this.chars ? 1 : 0);
   }
 
   /** Without WebGL the picture is left as it is. */
@@ -720,10 +800,16 @@ export function effectsSpread(effects: EffectState[] | undefined): number {
   return total;
 }
 
+function filterFor(def: EffectDef, values: Record<string, number | string>) {
+  const text = def.params.find((p) => p.kind === "text");
+  const chars = text ? String(values[text.key] ?? text.default ?? "").trim() : "";
+  return new LumioEffect({ effect: def.id, p: packParams(def, values), chars });
+}
+
 export function effectFilters(effects: EffectState[] | undefined): fabric.filters.BaseFilter<string>[] {
   return (effects ?? [])
     .filter((e) => e.enabled !== false && findEffect(e.id))
-    .map((e) => new LumioEffect({ effect: e.id, p: packParams(findEffect(e.id)!, e.values) }));
+    .map((e) => filterFor(findEffect(e.id)!, e.values));
 }
 
 /**
@@ -731,8 +817,16 @@ export function effectFilters(effects: EffectState[] | undefined): fabric.filter
  * pipeline as the canvas, so the tile shows exactly what applying it does.
  */
 export function renderEffectPreview(source: HTMLCanvasElement, def: EffectDef): string {
+  return renderStackPreview(source, [{ id: def.id, values: { ...defaultValues(def), ...def.preview } }]);
+}
+
+/** Same, for a whole stack of effects (Magic recipes). */
+export function renderStackPreview(source: HTMLCanvasElement, stack: EffectState[]): string {
   const img = new fabric.FabricImage(source);
-  img.filters = [new LumioEffect({ effect: def.id, p: packParams(def, defaultValues(def)) })];
+  img.filters = stack.flatMap((e) => {
+    const def = findEffect(e.id);
+    return def ? [filterFor(def, { ...defaultValues(def), ...e.values })] : [];
+  });
   img.applyFilters();
   const el = img.getElement() as HTMLCanvasElement;
   const url = el.toDataURL("image/jpeg", 0.8);

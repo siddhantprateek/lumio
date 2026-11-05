@@ -15,6 +15,8 @@ import {
   LayoutGrid,
   Sparkles,
   SwatchBook,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-preact";
 import { useEditor } from "../context";
 import { SHAPES } from "../lib/shapes";
@@ -75,9 +77,14 @@ export function LeftSidebar() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bgFileRef = useRef<HTMLInputElement>(null);
 
+  // The section to bring back when the panel is expanded again.
+  const lastSection = useRef<Section>("templates");
+  if (activeSection) lastSection.current = activeSection;
+
   const handleSectionClick = (key: Section) => {
     setActiveSection((prev) => (prev === key ? null : key));
   };
+  const togglePanel = () => setActiveSection((prev) => (prev ? null : lastSection.current));
 
   const handleImageUpload = useCallback(
     async (files: FileList | null) => {
@@ -149,6 +156,18 @@ export function LeftSidebar() {
             <span class="text-[10px] leading-tight">{s.label}</span>
           </button>
         ))}
+
+        {/* Collapse / expand the side panel */}
+        <button
+          type="button"
+          class="mt-auto mb-2 flex items-center justify-center w-[40px] h-[40px] rounded-lg bg-transparent border-none cursor-pointer text-zinc-500 transition-all hover:text-zinc-800 hover:bg-zinc-100"
+          onClick={togglePanel}
+          title={isOpen ? "Collapse sidebar" : "Expand sidebar"}
+          aria-label={isOpen ? "Collapse sidebar" : "Expand sidebar"}
+          aria-expanded={isOpen}
+        >
+          {isOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
+        </button>
       </div>
 
       {/* Content Panel */}
